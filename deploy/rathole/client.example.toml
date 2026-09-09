@@ -1,0 +1,17 @@
+[client]
+# Use the VPS address directly so a future CDN DNS proxy cannot intercept
+# the Rathole control connection.
+remote_addr = "103.141.13.141:5454"
+default_token = "REPLACE_WITH_RANDOM_SHARED_TOKEN"
+
+[client.transport]
+type = "noise"
+
+[client.transport.noise]
+remote_public_key = "REPLACE_WITH_SERVER_PUBLIC_KEY"
+
+[client.services.lockinder-http]
+local_addr = "127.0.0.1:80"
+
+[client.services.lockinder-https]
+local_addr = "127.0.0.1:443"

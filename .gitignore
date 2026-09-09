@@ -1,0 +1,14 @@
+node_modules/
+.next/
+.env*
+!.env.example
+/data/
+*.db
+*.db-shm
+*.db-wal
+*.tsbuildinfo
+test-results/
+playwright-report/
+deploy/rathole/client.toml
+deploy/rathole/server.toml
+deploy/rathole/rathole

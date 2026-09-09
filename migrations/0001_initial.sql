@@ -1,0 +1,16 @@
+CREATE TABLE users (id TEXT PRIMARY KEY NOT NULL, steam_id TEXT NOT NULL UNIQUE, avatar TEXT NOT NULL DEFAULT '', locale TEXT NOT NULL DEFAULT 'en', paused INTEGER NOT NULL DEFAULT 0, notifications INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL);
+CREATE TABLE profiles (user_id TEXT PRIMARY KEY NOT NULL REFERENCES users(id) ON DELETE CASCADE, name TEXT NOT NULL, country TEXT NOT NULL DEFAULT '', languages TEXT NOT NULL DEFAULT '[]', roles TEXT NOT NULL DEFAULT '[]', heroes TEXT NOT NULL DEFAULT '[]', bio TEXT NOT NULL DEFAULT '', complete INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE sessions (hash TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL);
+CREATE TABLE auth_states (hash TEXT PRIMARY KEY NOT NULL, provider TEXT NOT NULL, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL);
+CREATE TABLE nonces (value TEXT PRIMARY KEY NOT NULL, expires_at INTEGER NOT NULL);
+CREATE TABLE discord_connections (user_id TEXT PRIMARY KEY NOT NULL REFERENCES users(id) ON DELETE CASCADE, discord_id TEXT NOT NULL UNIQUE, username TEXT NOT NULL, ready INTEGER NOT NULL DEFAULT 0, checked_at INTEGER, error TEXT);
+CREATE TABLE rank_snapshots (user_id TEXT PRIMARY KEY NOT NULL REFERENCES users(id) ON DELETE CASCADE, tier INTEGER, division INTEGER, fetched_at INTEGER, attempted_at INTEGER, error TEXT);
+CREATE TABLE search_preferences (user_id TEXT PRIMARY KEY NOT NULL REFERENCES users(id) ON DELETE CASCADE, min_rank INTEGER, max_rank INTEGER, roles TEXT NOT NULL DEFAULT '[]');
+CREATE TABLE likes (id TEXT PRIMARY KEY NOT NULL, sender_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, recipient_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, created_at INTEGER NOT NULL, UNIQUE(sender_id, recipient_id), CHECK(sender_id <> recipient_id));
+CREATE INDEX likes_recipient ON likes(recipient_id);
+CREATE TABLE passes (sender_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, recipient_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY(sender_id, recipient_id), CHECK(sender_id <> recipient_id));
+CREATE TABLE blocks (sender_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, recipient_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY(sender_id, recipient_id), CHECK(sender_id <> recipient_id));
+CREATE TABLE notification_jobs (id TEXT PRIMARY KEY NOT NULL, like_id TEXT NOT NULL UNIQUE REFERENCES likes(id) ON DELETE CASCADE, status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, available_at INTEGER NOT NULL, lease_until INTEGER, lease_token TEXT, error TEXT, message_id TEXT);
+CREATE INDEX jobs_due ON notification_jobs(status, available_at);
+CREATE TABLE rate_limits (key TEXT PRIMARY KEY NOT NULL, count INTEGER NOT NULL, reset_at INTEGER NOT NULL);
+CREATE TABLE asset_cache (key TEXT PRIMARY KEY NOT NULL, json TEXT NOT NULL, fetched_at INTEGER NOT NULL);

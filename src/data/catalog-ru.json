@@ -1,0 +1,391 @@
+{
+  "stale": true,
+  "heroes": [
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/inferno_card.webp",
+      "name": "Инфернус",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/inferno_sm.webp",
+      "id": 1
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/gigawatt_card.webp",
+      "name": "Семь",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/gigawatt_sm.webp",
+      "id": 2
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/hornet_card.webp",
+      "name": "Виндикта",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/hornet_sm.webp",
+      "id": 3
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/spectre_card.webp",
+      "name": "Леди Гайст",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/spectre_sm.webp",
+      "id": 4
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/bull_card.webp",
+      "name": "Абрамс",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/bull_sm.webp",
+      "id": 6
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/wraith_card.webp",
+      "name": "Тень",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/wraith_sm.webp",
+      "id": 7
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/engineer_card.webp",
+      "name": "Макгиннис",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/engineer_sm.webp",
+      "id": 8
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/chrono_card.webp",
+      "name": "Парадокс",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/chrono_sm.webp",
+      "id": 10
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/sumo_card.webp",
+      "name": "Динамо",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/sumo_sm.webp",
+      "id": 11
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/kelvin_card.webp",
+      "name": "Кельвин",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/kelvin_sm.webp",
+      "id": 12
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/haze_card.webp",
+      "name": "Пелена",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/haze_sm.webp",
+      "id": 13
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/astro_card.webp",
+      "name": "Холлидей",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/astro_sm.webp",
+      "id": 14
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/bebop_card.webp",
+      "name": "Бибоп",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/bebop_sm.webp",
+      "id": 15
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/nano_card.webp",
+      "name": "Калико",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/nano_sm.webp",
+      "id": 16
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/archer_card.webp",
+      "name": "Серый Коготь",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/archer_sm.webp",
+      "id": 17
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/digger_card.webp",
+      "name": "Мо и Мелкий",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/digger_sm.webp",
+      "id": 18
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/shiv_card.webp",
+      "name": "Заточка",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/shiv_sm.webp",
+      "id": 19
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/tengu_card.webp",
+      "name": "Плющик",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/tengu_sm.webp",
+      "id": 20
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/warden_card.webp",
+      "name": "Дозорный",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/warden_sm.webp",
+      "id": 25
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/yamato_card.webp",
+      "name": "Ямато",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/yamato_sm.webp",
+      "id": 27
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/lash_card.webp",
+      "name": "Хлыст",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/lash_sm.webp",
+      "id": 31
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/viscous_card.webp",
+      "name": "Вязкус",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/viscous_sm.webp",
+      "id": 35
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/synth_card.webp",
+      "name": "Карман",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/synth_sm.webp",
+      "id": 50
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/mirage_card.webp",
+      "name": "Мираж",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/mirage_sm.webp",
+      "id": 52
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/kali_card.webp",
+      "name": "Гадюка",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/kali_sm.webp",
+      "id": 58
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/magician_card.webp",
+      "name": "Синклер",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/magician_sm.webp",
+      "id": 60
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/vampirebat_card.webp",
+      "name": "Мина",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/vampirebat_sm.webp",
+      "id": 63
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/drifter_card.webp",
+      "name": "Скиталец",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/drifter_sm.webp",
+      "id": 64
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/priest_card.webp",
+      "name": "Венатор",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/priest_sm.webp",
+      "id": 65
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/frank_card.webp",
+      "name": "Виктор",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/frank_sm.webp",
+      "id": 66
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/bookworm_card.webp",
+      "name": "Пейдж",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/bookworm_sm.webp",
+      "id": 67
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/doorman_card.webp",
+      "name": "Швейцар",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/doorman_sm.webp",
+      "id": 69
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/punkgoat_card.webp",
+      "name": "Билли",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/punkgoat_sm.webp",
+      "id": 72
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/necro_card.webp",
+      "name": "Грейвс",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/necro_sm.webp",
+      "id": 76
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/fencer_card.webp",
+      "name": "Аполлон",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/fencer_sm.webp",
+      "id": 77
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/familiar_card.webp",
+      "name": "Дрём",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/familiar_sm.webp",
+      "id": 79
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/werewolf_card.webp",
+      "name": "Сильвер",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/werewolf_sm.webp",
+      "id": 80
+    },
+    {
+      "portrait": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/unicorn_card.webp",
+      "name": "Селеста",
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/unicorn_sm.webp",
+      "id": 81
+    }
+  ],
+  "ranks": [
+    {
+      "name": "Обскурус",
+      "divisions": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/ranks/rank00_lg.webp",
+      "tier": 0
+    },
+    {
+      "name": "Послушник",
+      "divisions": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/ranks/rank01_lg.webp",
+      "tier": 1
+    },
+    {
+      "name": "Искатель",
+      "divisions": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/ranks/rank02_lg.webp",
+      "tier": 2
+    },
+    {
+      "name": "Аколит",
+      "divisions": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/ranks/rank03_lg.webp",
+      "tier": 3
+    },
+    {
+      "name": "Страж",
+      "divisions": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/ranks/rank04_lg.webp",
+      "tier": 4
+    },
+    {
+      "name": "Мистик",
+      "divisions": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/ranks/rank05_lg.webp",
+      "tier": 5
+    },
+    {
+      "name": "Ритуалист",
+      "divisions": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/ranks/rank06_lg.webp",
+      "tier": 6
+    },
+    {
+      "name": "Эмиссар",
+      "divisions": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/ranks/rank07_lg.webp",
+      "tier": 7
+    },
+    {
+      "name": "Оракул",
+      "divisions": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/ranks/rank08_lg.webp",
+      "tier": 8
+    },
+    {
+      "name": "Фантом",
+      "divisions": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/ranks/rank09_lg.webp",
+      "tier": 9
+    },
+    {
+      "name": "Владыка",
+      "divisions": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/ranks/rank10_lg.webp",
+      "tier": 10
+    },
+    {
+      "name": "Этернус",
+      "divisions": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "image": "https://assets-bucket.deadlock-api.com/assets-api-res/images/ranks/rank11_lg.webp",
+      "tier": 11
+    }
+  ]
+}

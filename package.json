@@ -1,0 +1,41 @@
+{
+  "name": "lockinder",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "bun --bun next dev --hostname 0.0.0.0",
+    "build": "bun --bun next build",
+    "start": "bun --bun next start --hostname 0.0.0.0",
+    "worker": "bun scripts/worker.ts",
+    "db:migrate": "bun scripts/migrate.ts",
+    "db:backup": "bun scripts/backup.ts",
+    "test": "bun test ./tests/core.test.ts",
+    "typecheck": "bun --bun tsc --noEmit",
+    "lint": "bun --bun eslint .",
+    "test:e2e": "node node_modules/@playwright/test/cli.js test"
+  },
+  "engines": {
+    "bun": ">=1.4.0"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "i18n-iso-countries": "^7.14.0",
+    "lucide-react": "^1.42.0",
+    "next": "^16.3.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/bun": "^1.4.0",
+    "@types/node": "^26.5.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.4",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3"
+  }
+}

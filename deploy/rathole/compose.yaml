@@ -1,0 +1,23 @@
+name: lockinder-tunnel
+
+services:
+  client:
+    image: alpine:3.24
+    # Use the same musl Rathole binary as the Alpine VPS.
+    command: ["/usr/local/bin/rathole", "--client", "/config/client.toml"]
+    network_mode: host
+    user: "1000:1000"
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./rathole:/usr/local/bin/rathole:ro
+      - ./client.toml:/config/client.toml:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

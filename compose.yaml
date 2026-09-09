@@ -1,0 +1,59 @@
+name: lockinder
+
+services:
+  web:
+    image: lockinder-web:${IMAGE_TAG:-local}
+    build:
+      context: .
+      target: web
+    env_file: ${LOCKINDER_ENV_FILE:-.env}
+    environment:
+      DATABASE_PATH: /data/lockinder.db
+      APP_URL: https://lockinder.win
+    expose:
+      - "3000"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.lockinder.rule: Host(`lockinder.win`)
+      traefik.http.routers.lockinder.entrypoints: https
+      traefik.http.routers.lockinder.tls: "true"
+      traefik.http.routers.lockinder.tls.certresolver: letsencrypt
+      traefik.http.routers.lockinder.service: lockinder
+      traefik.http.services.lockinder.loadbalancer.server.port: "3000"
+      traefik.http.routers.lockinder-http.rule: Host(`lockinder.win`)
+      traefik.http.routers.lockinder-http.entrypoints: http
+      traefik.http.routers.lockinder-http.middlewares: lockinder-https
+      traefik.http.routers.lockinder-http.service: lockinder
+      traefik.http.middlewares.lockinder-https.redirectscheme.scheme: https
+      traefik.http.middlewares.lockinder-https.redirectscheme.permanent: "true"
+    volumes:
+      - lockinder-data:/data
+    restart: unless-stopped
+    init: true
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      start_period: 20s
+      interval: 10s
+      timeout: 10s
+      retries: 3
+  worker:
+    image: lockinder-worker:${IMAGE_TAG:-local}
+    build:
+      context: .
+      target: worker
+    env_file: ${LOCKINDER_ENV_FILE:-.env}
+    environment:
+      DATABASE_PATH: /data/lockinder.db
+      APP_URL: https://lockinder.win
+    labels:
+      traefik.enable: "false"
+    volumes:
+      - lockinder-data:/data
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    depends_on:
+      web:
+        condition: service_healthy
+volumes:
+  lockinder-data:

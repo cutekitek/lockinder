@@ -1,0 +1,16 @@
+#!/sbin/openrc-run
+
+name="rathole"
+description="Rathole tunnel server for home Traefik"
+command="/usr/bin/rathole"
+command_args="--server /etc/rathole/config.toml"
+supervisor="supervise-daemon"
+respawn_delay=5
+respawn_max=0
+output_log="/var/log/rathole.log"
+error_log="/var/log/rathole.log"
+
+depend() {
+    need net
+    after firewall
+}

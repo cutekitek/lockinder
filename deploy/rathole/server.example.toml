@@ -1,0 +1,15 @@
+[server]
+bind_addr = "0.0.0.0:5454"
+default_token = "REPLACE_WITH_RANDOM_SHARED_TOKEN"
+
+[server.transport]
+type = "noise"
+
+[server.transport.noise]
+local_private_key = "REPLACE_WITH_SERVER_PRIVATE_KEY"
+
+[server.services.lockinder-http]
+bind_addr = "0.0.0.0:80"
+
+[server.services.lockinder-https]
+bind_addr = "0.0.0.0:443"

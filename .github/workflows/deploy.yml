@@ -1,0 +1,60 @@
+name: Build and deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lockinder-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: https://lockinder.win
+    env:
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check Docker access
+        run: |
+          docker info > /dev/null
+          docker compose version
+
+      - name: Prepare runtime configuration
+        env:
+          LOCKINDER_ENV: ${{ secrets.LOCKINDER_ENV }}
+        run: |
+          set -euo pipefail
+          config_dir="$HOME/.config/lockinder"
+          install -d -m 700 "$config_dir"
+          config_file="$config_dir/production.env"
+          if [ -n "$LOCKINDER_ENV" ]; then
+            umask 077
+            printf '%s\n' "$LOCKINDER_ENV" > "$config_file"
+          elif [ ! -f "$config_file" ]; then
+            install -m 600 .env.example "$config_file"
+          fi
+          chmod 600 "$config_file"
+          echo "LOCKINDER_ENV_FILE=$config_file" >> "$GITHUB_ENV"
+
+      - name: Build and test Bun images
+        run: docker compose build --pull
+
+      - name: Back up and deploy
+        run: bash scripts/deploy.sh
+
+      - name: Show service status
+        if: always()
+        run: docker compose ps -a
