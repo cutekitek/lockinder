@@ -102,7 +102,7 @@ After adding the runner user to the Docker group, restart `actions.runner.cuteki
 
 The Dockerfile pins Bun 1.4.0, installs from `bun.lock`, and runs lint, backend tests and the production build before deployment. Both final images run Bun as a non-root user. Node.js is only needed locally for Playwright's test runner; the app it tests runs on Bun.
 
-The worker sends outbound HTTP/HTTPS requests through the home server's proxy on port 5050. Compose maps `host.docker.internal` to the Docker host gateway because `127.0.0.1` inside the worker refers to the container itself. The proxy must accept connections on the host gateway interface (the current listener binds `0.0.0.0:5050`). Loopback requests bypass the proxy.
+Both web and worker send outbound HTTP/HTTPS requests through the home server's proxy on port 5050. The web app calls Discord for OAuth, identity, membership verification and the onboarding test DM; the worker delivers queued notifications. Compose maps `host.docker.internal` to the Docker host gateway because `127.0.0.1` inside a container refers to the container itself. The proxy must accept connections on the host gateway interface (the current listener binds `0.0.0.0:5050`). Loopback requests, including the web health check, bypass the proxy.
 
 Compose matches the server's existing Traefik configuration: host networking, Docker provider, `http` and `https` entrypoints, and the `letsencrypt` certificate resolver. Container labels route `lockinder.win` to web port 3000 and redirect HTTP to HTTPS. The app publishes no host ports; host-networked Traefik can reach the Compose bridge directly. `APP_URL` is fixed to `https://lockinder.win` for both services.
 

@@ -10,6 +10,11 @@ services:
     environment:
       DATABASE_PATH: /data/lockinder.db
       APP_URL: https://lockinder.win
+      HTTP_PROXY: http://host.docker.internal:5050
+      HTTPS_PROXY: http://host.docker.internal:5050
+      NO_PROXY: localhost,127.0.0.1,::1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     expose:
       - "3000"
     labels:
