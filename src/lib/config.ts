@@ -1,3 +1,5 @@
+import { logError } from './logger';
+
 export function origin() {
   const value = process.env.APP_URL || 'http://localhost:3000';
   const url = new URL(value);
@@ -6,7 +8,11 @@ export function origin() {
 }
 export function required(name: string) {
   const value = process.env[name];
-  if (!value) throw new Error(`Missing configuration: ${name}`);
+  if (!value) {
+    const error = new Error(`Missing configuration: ${name}`);
+    logError('configuration.missing', error, { setting: name });
+    throw error;
+  }
   return value;
 }
 export const DEADLOCK = 'https://api.deadlock-api.com';

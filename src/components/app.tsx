@@ -21,10 +21,19 @@ type Detail = Player & { discordUsername?: string | null; discordId?: string | n
 type T = ReturnType<typeof translator>;
 type Run = (task: () => Promise<void>, success?: string) => Promise<boolean>;
 async function api<T>(path: string, value?: unknown): Promise<T> {
-  const response = await fetch(`/api/${path}`, value === undefined ? { cache: 'no-store' } : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || 'unavailable');
-  return data;
+  let status: number | undefined;
+  let requestId: string | null = null;
+  try {
+    const response = await fetch(`/api/${path}`, value === undefined ? { cache: 'no-store' } : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
+    status = response.status;
+    requestId = response.headers.get('X-Request-ID');
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'unavailable');
+    return data;
+  } catch (error) {
+    if (status !== 401) console.error('[Lockinder] API request failed', { route: path.split('?')[0], method: value === undefined ? 'GET' : 'POST', status, requestId, type: error instanceof Error ? error.name : 'UnknownError' });
+    throw error;
+  }
 }
 function language(code: string, locale: Locale) { return new Intl.DisplayNames([locale], { type: 'language' }).of(code) || code; }
 function country(code: string, locale: Locale) { return countries.getName(code, locale) || code; }

@@ -177,3 +177,11 @@ Provider integrations are mocked in automated tests. Before launch, use two acco
 Set `DISCORD_ADMIN_USER_ID` in the server `.env` to the administrator’s numeric Discord user ID. The existing `DISCORD_BOT_TOKEN` is used to send direct messages. The administrator must allow DMs from the bot (and share a server with it). Restart the web service after changing the configuration.
 
 Authenticated users can submit complaints from the navigation bar without connecting their own Discord account. Each message includes the complaint text and the sender’s Steam profile link. Messages are limited to 1500 characters and three submissions per user per ten minutes.
+
+### Error logs
+
+Server and notification-worker errors are written as JSON lines to stderr. In development, read the terminal running `bun run dev` or `bun run worker`. With Docker Compose, use `docker compose logs -f web worker`.
+
+Entries contain `timestamp`, `level`, `event`, error type/code and stack locations. API logs also include `requestId`, HTTP method and route. The same ID appears in the response `X-Request-ID` header and browser-console API error entry. Provider failures include the service, operation and HTTP status; Discord failures also include its numeric error code when available. Worker delivery failures include job ID and attempt number.
+
+Request bodies, cookies, authorization headers, URL query strings and arbitrary error messages are not logged. Guest authentication checks are omitted from error logs. No separate log file is created; retention and rotation are handled by the process/container runtime.

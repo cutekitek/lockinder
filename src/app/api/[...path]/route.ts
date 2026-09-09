@@ -5,6 +5,7 @@ import { db } from '@/lib/db';
 import { discord, profiles, sessions, users, passes } from '@/lib/schema';
 import { AppError, authenticate, consumeState, cookie, cookieValue, csrf, hash, id, newSession, newState, rateLimit } from '@/lib/security';
 import { origin, required } from '@/lib/config';
+import { logError, withRequestLog } from '@/lib/logger';
 import { catalog, DiscordError, discordIdentity, refreshRank, sendDM, steamLoginUrl, steamSummary, verifyMembership, verifySteam } from '@/lib/providers';
 import { communityStats, act, blockUser, cancelJobs, disconnectDiscord, discovery, getMe, profileDetail, receivedLikes, saveFilters, saveProfile } from '@/lib/service';
 
@@ -14,10 +15,12 @@ type Context = { params: Promise<{ path: string[] }> };
 function json(data: unknown, status = 200) { return NextResponse.json(data, { status, headers: { 'Cache-Control': 'no-store' } }); }
 function redirect(path: string) { return NextResponse.redirect(new URL(path, origin()), 303); }
 function failure(error: unknown) {
+  const status = error instanceof AppError ? error.status : error instanceof z.ZodError ? 400 : error instanceof DiscordError && error.status === 429 ? 429 : 503;
+  // An unauthenticated /me request is the normal guest bootstrap.
+  if (!(error instanceof AppError && error.code === 'unauthorized')) logError('api.request_failed', error, { status }, status >= 500 ? 'error' : 'warn');
   if (error instanceof AppError) return json({ error: error.code }, error.status);
   if (error instanceof z.ZodError) return json({ error: 'invalidInput' }, 400);
   if (error instanceof DiscordError) return json({ error: error.code }, error.status === 429 ? 429 : 503);
-  console.error('Request failed', error instanceof Error ? error.constructor.name : 'UnknownError');
   return json({ error: 'unavailable' }, 503);
 }
 async function body(request: Request) {
@@ -34,7 +37,7 @@ async function body(request: Request) {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new AppError('invalidInput'); }
 }
 
-export async function GET(request: Request, context: Context) {
+async function get(request: Request, context: Context) {
   const path = (await context.params).path.join('/');
   const url = new URL(request.url);
   try {
@@ -102,12 +105,15 @@ export async function GET(request: Request, context: Context) {
     if (path.startsWith('players/')) return json(profileDetail(user.id, path.split('/')[1]));
     throw new AppError('notFound', 404);
   } catch (error) {
-    if (path.startsWith('auth/')) return redirect(`/?error=${encodeURIComponent(error instanceof AppError ? error.code : 'authUnavailable')}`);
+    if (path.startsWith('auth/')) {
+      logError('auth.failed', error, { provider: path.split('/')[1] });
+      return redirect(`/?error=${encodeURIComponent(error instanceof AppError ? error.code : 'authUnavailable')}`);
+    }
     return failure(error);
   }
 }
 
-export async function POST(request: Request, context: Context) {
+async function post(request: Request, context: Context) {
   try {
     csrf(request);
     const user = authenticate(request);
@@ -120,11 +126,14 @@ export async function POST(request: Request, context: Context) {
     if (path === 'complaint') {
       const { text } = z.object({ text: z.string().trim().min(1).max(1500) }).strict().parse(await body(request));
       const recipient = process.env.DISCORD_ADMIN_USER_ID?.trim();
-      if (!recipient || !/^\d{17,20}$/.test(recipient) || !process.env.DISCORD_BOT_TOKEN) throw new AppError('complaintUnavailable', 503);
+      if (!recipient || !/^\d{17,20}$/.test(recipient) || !process.env.DISCORD_BOT_TOKEN) {
+        logError('complaint.configuration_missing', new AppError('complaintUnavailable', 503), { adminConfigured: !!recipient && /^\d{17,20}$/.test(recipient), botConfigured: !!process.env.DISCORD_BOT_TOKEN });
+        throw new AppError('complaintUnavailable', 503);
+      }
       rateLimit(`complaint:${user.id}`, 3, 600_000);
       try {
         await sendDM(recipient, `Жалоба с Lockinder\nSteam: https://steamcommunity.com/profiles/${user.steamId}\n\n${text}`);
-      } catch { throw new AppError('complaintUnavailable', 503); }
+      } catch (error) { logError('complaint.delivery_failed', error, { userId: user.id }); throw new AppError('complaintUnavailable', 503); }
       return json({ ok: true });
     }
     if (path === 'filters') { saveFilters(user.id, await body(request)); return json({ ok: true }); }
@@ -164,4 +173,12 @@ export async function POST(request: Request, context: Context) {
     }
     throw new AppError('notFound', 404);
   } catch (error) { return failure(error); }
+}
+
+export async function GET(request: Request, context: Context) {
+  return withRequestLog(request, () => get(request, context));
+}
+
+export async function POST(request: Request, context: Context) {
+  return withRequestLog(request, () => post(request, context));
 }

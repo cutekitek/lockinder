@@ -5,6 +5,7 @@ import { id } from './security';
 import { DiscordError, sendDM, verifyMembership } from './providers';
 import { origin } from './config';
 import { isBlocked } from './service';
+import { logError } from './logger';
 
 export async function processJob() {
   const now = Date.now();
@@ -38,6 +39,7 @@ export async function processJob() {
     const messageId = await sendDM(connection.discordId, message, job.likeId);
     db().update(jobs).set({ status: 'sent', messageId, leaseToken: null, leaseUntil: null, error: null }).where(owned).run();
   } catch (error) {
+    logError('worker.delivery_failed', error, { jobId: job.id, attempt: job.attempts, userId: like.recipientId });
     const permanent = error instanceof DiscordError && [400, 403, 404].includes(error.status);
     const code = error instanceof DiscordError ? error.code : 'discordUnavailable';
     const exhausted = job.attempts >= 5;

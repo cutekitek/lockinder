@@ -386,3 +386,37 @@ test('complaints validate input, deliver to the configured administrator and lim
     else process.env.DISCORD_ADMIN_USER_ID = previous;
   }
 });
+
+test('API error logs correlate Discord failures without exposing message text or credentials', async () => {
+  const previousAdmin = process.env.DISCORD_ADMIN_USER_ID;
+  const originalError = console.error;
+  const logs: string[] = [];
+  console.error = (...args: unknown[]) => { logs.push(args.join(' ')); };
+  process.env.DISCORD_ADMIN_USER_ID = '987654321098765432';
+  try {
+    const session = newSession(fixture());
+    mockDiscord(403);
+    const response = await POST(request('complaint', session, { text: 'PRIVATE-COMPLAINT-CONTENT' }), context('complaint'));
+    assert.equal(response.status, 503);
+    const entries = logs.map(line => JSON.parse(line));
+    const requestId = response.headers.get('X-Request-ID');
+    assert.ok(requestId);
+    assert.ok(entries.some(entry => entry.event === 'complaint.delivery_failed' && entry.error.code === 'dmBlocked'));
+    assert.ok(entries.some(entry => entry.event === 'provider.http_error' && entry.status === 403));
+    assert.ok(entries.some(entry => entry.event === 'api.request_failed' && entry.status === 503));
+    assert.ok(entries.every(entry => entry.requestId === requestId && entry.route === '/api/complaint' && entry.method === 'POST'));
+    assert.ok(!logs.join('').includes('PRIVATE-COMPLAINT-CONTENT'));
+    assert.ok(!logs.join('').includes(session));
+    assert.ok(!logs.join('').includes('test-only'));
+    logs.length = 0;
+    global.fetch = (async () => { throw new Error('TOKEN=private-token BODY=private-body'); }) as unknown as typeof fetch;
+    await POST(request('complaint', session, { text: 'another complaint' }), context('complaint'));
+    assert.ok(logs.some(line => line.includes('provider.network_error')));
+    assert.ok(!logs.join('').includes('private-token'));
+    assert.ok(!logs.join('').includes('private-body'));
+  } finally {
+    console.error = originalError;
+    if (previousAdmin === undefined) delete process.env.DISCORD_ADMIN_USER_ID;
+    else process.env.DISCORD_ADMIN_USER_ID = previousAdmin;
+  }
+});

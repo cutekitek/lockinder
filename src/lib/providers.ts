@@ -4,6 +4,7 @@ import { db } from './db';
 import { assets, ranks, users } from './schema';
 import { AppError, claimNonce, id } from './security';
 import { DEADLOCK, DISCORD, origin, required } from './config';
+import { logError, providerFetch } from './logger';
 import type { Catalog, Locale } from './model';
 import fallbackEn from '../data/catalog-en.json';
 import fallbackRu from '../data/catalog-ru.json';
@@ -41,7 +42,7 @@ export async function verifySteam(url: URL, state: string) {
   const body = new URLSearchParams();
   p.forEach((value, key) => { if (key.startsWith('openid.')) body.set(key, value); });
   body.set('openid.mode', 'check_authentication');
-  const response = await fetch(STEAM, { method: 'POST', body, signal: AbortSignal.timeout(10_000), redirect: 'error' });
+  const response = await providerFetch('steam', 'verify_login', STEAM, { method: 'POST', body, signal: AbortSignal.timeout(10_000), redirect: 'error' });
   if (!response.ok || !/^is_valid:true\r?$/m.test(await response.text())) throw new AppError('invalidAuth');
   return match[1];
 }
@@ -51,11 +52,12 @@ export async function steamSummary(steamId: string) {
     const url = new URL('https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/');
     url.searchParams.set('key', process.env.STEAM_API_KEY);
     url.searchParams.set('steamids', steamId);
-    const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const response = await providerFetch('steam', 'player_summary', url, { signal: AbortSignal.timeout(8000) });
+    if (!response.ok) throw new AppError('authUnavailable', 503);
     const body = await response.json();
     const player = body.response?.players?.[0];
     return { name: typeof player?.personaname === 'string' ? player.personaname.slice(0, 40) : 'Player', avatar: safeImage(player?.avatarfull) };
-  } catch { return { name: `Player ${steamId.slice(-4)}`, avatar: '' }; }
+  } catch (error) { logError('steam.summary_failed', error); return { name: `Player ${steamId.slice(-4)}`, avatar: '' }; }
 }
 export function safeImage(value: unknown) {
   if (typeof value !== 'string') return '';
@@ -81,11 +83,12 @@ export async function refreshRank(userId: string, manual = false) {
   const user = db().select().from(users).where(eq(users.id, userId)).get();
   if (!user) return;
   try {
-    const response = await fetch(`${DEADLOCK}/v1/players/${steamAccountId(user.steamId)}/rank`, { headers: process.env.DEADLOCK_API_KEY ? { 'X-API-Key': process.env.DEADLOCK_API_KEY } : {}, signal: AbortSignal.timeout(8000) });
+    const response = await providerFetch('deadlock', 'player_rank', `${DEADLOCK}/v1/players/${steamAccountId(user.steamId)}/rank`, { headers: process.env.DEADLOCK_API_KEY ? { 'X-API-Key': process.env.DEADLOCK_API_KEY } : {}, signal: AbortSignal.timeout(8000) });
     if (!response.ok) throw new Error('rankUnavailable');
     const rank = rankSchema.parse(await response.json());
     db().update(ranks).set({ tier: rank.rank, division: rank.subrank, fetchedAt: Date.now(), error: null }).where(eq(ranks.userId, userId)).run();
-  } catch {
+  } catch (error) {
+    logError('rank.refresh_failed', error, { userId });
     db().update(ranks).set({ error: 'rankUnavailable' }).where(eq(ranks.userId, userId)).run();
   }
 }
@@ -94,7 +97,7 @@ export async function catalog(locale: Locale): Promise<Catalog> {
   if (cached && Date.now() - cached.fetchedAt < 86400_000) return JSON.parse(cached.json);
   try {
     const language = locale === 'ru' ? 'russian' : 'english';
-    const responses = await Promise.all(['heroes', 'ranks'].map(asset => fetch(`${DEADLOCK}/v1/assets/${asset}?language=${language}`, { signal: AbortSignal.timeout(8000) })));
+    const responses = await Promise.all(['heroes', 'ranks'].map(asset => providerFetch('deadlock', asset, `${DEADLOCK}/v1/assets/${asset}?language=${language}`, { signal: AbortSignal.timeout(8000) })));
     if (responses.some(r => !r.ok)) throw new Error('unavailable');
     const heroData = z.array(z.object({ id: z.number().int(), name: z.string(), player_selectable: z.boolean(), disabled: z.boolean().optional(), in_development: z.boolean().optional(), images: z.record(z.string(), z.unknown()) })).parse(await responses[0].json());
     const rankData = z.array(z.object({ tier: z.number().int(), name: z.string(), images: z.record(z.string(), z.unknown()) })).parse(await responses[1].json());
@@ -105,22 +108,26 @@ export async function catalog(locale: Locale): Promise<Catalog> {
     };
     db().insert(assets).values({ key: locale, json: JSON.stringify(result), fetchedAt: Date.now() }).onConflictDoUpdate({ target: assets.key, set: { json: JSON.stringify(result), fetchedAt: Date.now() } }).run();
     return result;
-  } catch { return { ...(cached ? JSON.parse(cached.json) : locale === 'ru' ? fallbackRu : fallbackEn), stale: true }; }
+  } catch (error) { logError('catalog.refresh_failed', error, { locale, cached: !!cached }); return { ...(cached ? JSON.parse(cached.json) : locale === 'ru' ? fallbackRu : fallbackEn), stale: true }; }
 }
 
 export class DiscordError extends Error {
   constructor(public status: number, public retryAfter = 0, public code = 'discordUnavailable') { super(code); }
 }
 export async function discordRequest(path: string, init: RequestInit = {}, accessToken?: string) {
-  const response = await fetch(`${DISCORD}${path}`, {
+  const response = await providerFetch('discord', path.replace(/\d+/g, ':id'), `${DISCORD}${path}`, {
     ...init, headers: { Authorization: accessToken ? `Bearer ${accessToken}` : `Bot ${required('DISCORD_BOT_TOKEN')}`, 'Content-Type': 'application/json', ...init.headers }, signal: AbortSignal.timeout(10_000)
   });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new DiscordError(response.status, Number(body.retry_after || response.headers.get('retry-after') || 1) * 1000, response.status === 403 ? 'dmBlocked' : response.status === 404 ? 'joinServer' : 'discordUnavailable');
+  const body = await response.json().catch(error => { logError('discord.invalid_response', error, { status: response.status }); return {}; });
+  if (!response.ok) {
+    const error = new DiscordError(response.status, Number(body.retry_after || response.headers.get('retry-after') || 1) * 1000, response.status === 403 ? 'dmBlocked' : response.status === 404 ? 'joinServer' : 'discordUnavailable');
+    logError('discord.request_failed', error, { operation: path.replace(/\d+/g, ':id'), discordCode: typeof body.code === 'number' ? body.code : undefined, retryAfterMs: error.retryAfter });
+    throw error;
+  }
   return body;
 }
 export async function discordIdentity(code: string) {
-  const response = await fetch(`${DISCORD}/oauth2/token`, { method: 'POST', body: new URLSearchParams({
+  const response = await providerFetch('discord', 'oauth_token', `${DISCORD}/oauth2/token`, { method: 'POST', body: new URLSearchParams({
     client_id: required('DISCORD_CLIENT_ID'), client_secret: required('DISCORD_CLIENT_SECRET'), grant_type: 'authorization_code', code,
     redirect_uri: `${origin()}/api/auth/discord/callback`
   }), signal: AbortSignal.timeout(10_000) });
