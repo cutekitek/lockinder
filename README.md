@@ -98,6 +98,8 @@ Limits: 30 new likes/hour per sender, three test DMs/10 minutes and ten Discord-
 
 `.github/workflows/deploy.yml` builds and deploys pushes to `main`, with manual runs available from Actions. It uses the existing Linux x64 self-hosted runner for `cutekitek/lockinder`; its `github-runner` user needs access to Docker. No registry, SSH deployment key, or host Bun installation is required.
 
+After adding the runner user to the Docker group, restart `actions.runner.cutekitek-lockinder.minipc.service` so the running process picks up its supplementary groups. Account membership alone does not update an already running service.
+
 The Dockerfile pins Bun 1.4.0, installs from `bun.lock`, and runs lint, backend tests and the production build before deployment. Both final images run Bun as a non-root user. Node.js is only needed locally for Playwright's test runner; the app it tests runs on Bun.
 
 Compose matches the server's existing Traefik configuration: host networking, Docker provider, `http` and `https` entrypoints, and the `letsencrypt` certificate resolver. Container labels route `lockinder.win` to web port 3000 and redirect HTTP to HTTPS. The app publishes no host ports; host-networked Traefik can reach the Compose bridge directly. `APP_URL` is fixed to `https://lockinder.win` for both services.
