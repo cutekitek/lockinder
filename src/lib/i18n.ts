@@ -1,5 +1,8 @@
 import type { Locale } from './model';
 const en = {
+  developmentNotice: 'The site is under active development.',
+  complaint: 'Report an issue', complaintText: 'Describe the issue', complaintHint: 'Your message will be sent to the administrator along with a link to your Steam profile.', complaintSend: 'Send', complaintSent: 'Your message has been sent to the administrator.', complaintUnavailable: 'Could not send your message. Please try again later.',
+  profileDiscordHint: 'Connect Discord to receive notifications when someone likes your profile.',
   communityStats: 'Community statistics', registeredPlayers: 'Players registered', teammateConnections: 'Teammate connections', connectionsExplanation: 'Pairs of players who liked each other',
   discover: 'Discover', profile: 'My profile', likes: 'Who liked you', settings: 'Connections',
   tagline: 'FIND YOUR PEOPLE. WIN YOUR GAMES.', game: 'DEADLOCK TEAMMATE FINDER',
@@ -62,6 +65,9 @@ const en = {
   readyBadge: 'READY TO PLAY', setupBadge: 'LET’S GET YOU SET UP'
 };
 const ru: Record<keyof typeof en, string> = {
+  developmentNotice: 'Сайт находится в активной стадии разработки.',
+  complaint: 'Сообщить о проблеме', complaintText: 'Опишите проблему', complaintHint: 'Сообщение будет отправлено администратору вместе со ссылкой на ваш Steam-профиль.', complaintSend: 'Отправить', complaintSent: 'Сообщение отправлено администратору.', complaintUnavailable: 'Не удалось отправить сообщение. Попробуйте позже.',
+  profileDiscordHint: 'Подключите Discord, чтобы получать уведомления о лайках вашего профиля.',
   communityStats: 'Статистика сообщества', registeredPlayers: 'Игроков зарегистрировано', teammateConnections: 'Пар напарников', connectionsExplanation: 'Игроки, которые поставили друг другу лайк',
   discover: 'Поиск', profile: 'Мой профиль', likes: 'Вы понравились', settings: 'Подключения',
   tagline: 'НАЙДИТЕ СВОИХ. ПОБЕЖДАЙТЕ ВМЕСТЕ.', game: 'ПОИСК НАПАРНИКОВ В DEADLOCK',

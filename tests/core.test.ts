@@ -350,3 +350,39 @@ test('complete controlled flow: Steam callback, profile, Discord callback/test, 
   assert.equal(receivedLikes(recipient)[0]?.id, userId);
   assert.equal(profileDetail(recipient, userId).discordUsername, 'new_teammate');
 });
+
+test('complaints validate input, deliver to the configured administrator and limit requests', async () => {
+  const previous = process.env.DISCORD_ADMIN_USER_ID;
+  process.env.DISCORD_ADMIN_USER_ID = '987654321098765432';
+  try {
+    const user = fixture({ complete: false });
+    const session = newSession(user);
+    const deliveries: { url: string; body: Record<string, unknown> }[] = [];
+    global.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      deliveries.push({ url: String(input), body: JSON.parse(String(init?.body)) });
+      return Response.json({ id: '123456789012345678' });
+    }) as typeof fetch;
+    assert.equal((await POST(request('complaint', '', { text: 'test' }), context('complaint'))).status, 401);
+    for (const text of ['   ', 'x'.repeat(1501)]) {
+      assert.equal((await POST(request('complaint', session, { text }), context('complaint'))).status, 400);
+    }
+    assert.equal(deliveries.length, 0);
+    for (let n = 0; n < 3; n++) assert.equal((await POST(request('complaint', session, { text: '  Bug @everyone  ' }), context('complaint'))).status, 200);
+    assert.equal(deliveries[0].body.recipient_id, '987654321098765432');
+    assert.match(String(deliveries[1].body.content), /Steam: https:\/\/steamcommunity.com\/profiles\/\d+\n\nBug @everyone$/);
+    assert.deepEqual(deliveries[1].body.allowed_mentions, { parse: [] });
+    assert.equal((await POST(request('complaint', session, { text: 'test' }), context('complaint'))).status, 429);
+    assert.equal(deliveries.length, 6);
+    delete process.env.DISCORD_ADMIN_USER_ID;
+    assert.equal((await POST(request('complaint', session, { text: 'test' }), context('complaint'))).status, 503);
+    process.env.DISCORD_ADMIN_USER_ID = '987654321098765432';
+    const anotherSession = newSession(fixture());
+    mockDiscord(403);
+    const failed = await POST(request('complaint', anotherSession, { text: 'test' }), context('complaint'));
+    assert.equal(failed.status, 503);
+    assert.equal((await failed.json()).error, 'complaintUnavailable');
+  } finally {
+    if (previous === undefined) delete process.env.DISCORD_ADMIN_USER_ID;
+    else process.env.DISCORD_ADMIN_USER_ID = previous;
+  }
+});

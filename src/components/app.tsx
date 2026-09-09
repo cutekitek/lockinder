@@ -48,6 +48,8 @@ export function App() {
   const [booting, setBooting] = useState(true);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ key: string; error: boolean } | null>(null);
+  const [developmentNotice, setDevelopmentNotice] = useState(false);
+  const [complaintOpen, setComplaintOpen] = useState(false);
   const [bootError, setBootError] = useState(false);
   const [players, setPlayers] = useState<Player[]>([]);
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -64,7 +66,13 @@ export function App() {
       if (active) setLocale(preferred);
       try {
         const user = await api<Me>('me');
-        if (active) { setMe(user); if (!saved) setLocale(user.locale === 'ru' ? 'ru' : 'en'); }
+        if (active) {
+          setMe(user); if (!saved) setLocale(user.locale === 'ru' ? 'ru' : 'en');
+          if (!document.cookie.split(';').some(cookie => cookie.trim() === 'lockinder-development-seen=1')) {
+            setDevelopmentNotice(true);
+            document.cookie = `lockinder-development-seen=1; Path=/; Max-Age=34560000; SameSite=Lax${window.location.protocol === 'https:' ? '; Secure' : ''}`;
+          }
+        }
       } catch (error) {
         if (active && error instanceof Error && error.message !== 'unauthorized') { setBootError(true); setNotice({ key: error.message, error: true }); }
       } finally { if (active) setBooting(false); }
@@ -136,9 +144,10 @@ export function App() {
     <header className="topbar"><Link href="/" className="brand" aria-label="Lockinder"><span className="brand-mark"><img src="/icon.svg" width="28" height="28" alt="" /></span>lockinder<span className="brand-dot">.</span></Link>
       <div className="top-actions">{me && <button className="mobile-logout" aria-label={t('logout')} disabled={busy} onClick={() => void run(async () => { await api('logout', {}); setMe(null); router.push('/'); })}><LogOut size={17} /></button>}<div className="locale" aria-label={t('languageLabel')}><Globe2 size={15} /><button aria-pressed={locale === 'en'} onClick={() => chooseLocale('en')}>EN</button><span>/</span><button aria-pressed={locale === 'ru'} onClick={() => chooseLocale('ru')}>RU</button></div>{me && <Link className="header-avatar" href="/profile"><Avatar player={me} /><span>{me.name}</span></Link>}</div>
     </header>
+    {me && developmentNotice && <div className="notice development-notice" role="status"><span>{t('developmentNotice')}</span><button onClick={() => setDevelopmentNotice(false)} aria-label={t('close')}><X size={18} /></button></div>}
     {notice && <div className={`notice ${notice.error ? 'error' : ''}`} role={notice.error ? 'alert' : 'status'}><span>{t(notice.key)}</span><button onClick={() => setNotice(null)} aria-label={t('close')}><X size={18} /></button></div>}
     {booting ? <Loading t={t} /> : bootError ? <Empty title={t('unavailable')} text=""><button className="primary" onClick={() => window.location.reload()}>{t('retry')}</button></Empty> : !me ? <Guest t={t} /> : <div className="workspace">
-      <aside className="sidebar"><div className="sidebar-top"><nav>{nav.map(n => <Link key={n.href} href={n.href} className={path === n.href ? 'active' : ''}><n.icon size={20} /><span>{t(n.label)}</span>{path === n.href && <span className="nav-dot" />}</Link>)}</nav></div>
+      <aside className="sidebar"><div className="sidebar-top"><nav>{nav.map(n => <Link key={n.href} href={n.href} className={path === n.href ? 'active' : ''}><n.icon size={20} /><span>{t(n.label)}</span>{path === n.href && <span className="nav-dot" />}</Link>)}<button className="complaint-nav" onClick={() => setComplaintOpen(true)}><MessageCircle size={20} /><span>{t('complaint')}</span></button></nav></div>
         <div className="sidebar-bottom"><button className="text-button" disabled={busy} onClick={() => void run(async () => { await api('logout', {}); setMe(null); router.push('/'); })}><LogOut size={16} />{t('logout')}</button></div>
       </aside>
       <main className="main-content">
@@ -152,8 +161,41 @@ export function App() {
       </main>
     </div>}
     {path === '/' && <CommunityStats locale={locale} t={t} refreshKey={feedVersion} />}
+    {me && complaintOpen && <ComplaintModal t={t} onClose={() => setComplaintOpen(false)} onSent={() => { setComplaintOpen(false); setNotice({ key: 'complaintSent', error: false }); }} />}
     <footer><span>{t('unofficial')}</span></footer>
   </div>;
+}
+
+function ComplaintModal({ t, onClose, onSent }: { t: T; onClose: () => void; onSent: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const sending = useRef(false);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const element = dialog.current;
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    element?.showModal();
+    return () => { element?.close(); trigger?.focus(); };
+  }, []);
+  return <dialog ref={dialog} className="complaint-modal panel" aria-labelledby="complaint-title" aria-describedby="complaint-hint" onCancel={event => { event.preventDefault(); if (!sending.current) onClose(); }}>
+    <form onSubmit={async event => {
+      event.preventDefault();
+      if (sending.current || !text.trim()) return;
+      sending.current = true; setBusy(true); setError(null);
+      try { await api('complaint', { text: text.trim() }); onSent(); }
+      catch (error) { setError(error instanceof Error ? error.message : 'complaintUnavailable'); }
+      finally { sending.current = false; setBusy(false); }
+    }}>
+      <div className="complaint-heading"><h2 id="complaint-title">{t('complaint')}</h2><button type="button" disabled={busy} onClick={onClose} aria-label={t('close')}><X size={20} /></button></div>
+      <p id="complaint-hint" className="muted">{t('complaintHint')}</p>
+      <label htmlFor="complaint-text">{t('complaintText')}</label>
+      <textarea id="complaint-text" required maxLength={1500} rows={6} value={text} disabled={busy} onChange={event => setText(event.target.value)} />
+      <small>{text.length} / 1500</small>
+      {error && <p role="alert" className="warning-text">{t(error)}</p>}
+      <div className="complaint-actions"><button type="button" className="secondary" disabled={busy} onClick={onClose}>{t('cancel')}</button><button className="primary" disabled={busy || !text.trim()}>{busy && <LoaderCircle className="spin" size={16} />}{t('complaintSend')}</button></div>
+    </form>
+  </dialog>;
 }
 
 function CommunityStats({ locale, t, refreshKey }: { locale: Locale; t: T; refreshKey: number }) {
@@ -256,7 +298,7 @@ function ProfileForm({ me, locale, catalog, t, busy, run, refresh }: { me: Me; l
     <label>{t('bio')}<textarea rows={4} maxLength={600} placeholder={t('bioPlaceholder')} value={form.bio} onChange={e => setForm({ ...form, bio: e.target.value })} /><small className="char-count">{form.bio.length} / 600</small></label>
     <fieldset><legend>{t('heroes')}</legend><small>{t('heroHint')}</small>{catalog?.stale && <small>{t('catalogStale')}</small>}<div className="hero-picker">{catalog?.heroes.map(h => <button type="button" key={h.id} title={h.name} aria-pressed={form.heroes.includes(h.id)} disabled={!form.heroes.includes(h.id) && form.heroes.length >= 12} onClick={() => setForm({ ...form, heroes: toggle(form.heroes, h.id) })}><img src={h.image} alt="" /><span>{h.name}</span>{form.heroes.includes(h.id) && <Check size={15} />}</button>)}</div></fieldset>
     <div className="form-bottom"><small>{t('requiredHint')}</small><button className="primary" disabled={busy || !form.languages.length || !form.roles.length}>{busy ? <LoaderCircle className="spin" size={17} /> : <Check size={17} />}{t('saveProfile')}</button></div>
-  </form><aside className="panel profile-aside"><span className="eyebrow">DEADLOCK</span><Rank player={me} catalog={catalog} t={t} /><p>{t('rankSource')}</p>{me.rankFetchedAt && <small>{t('updated')} {new Date(me.rankFetchedAt).toLocaleString(locale)}</small>}{me.rankError && <p className="warning-text">{t(me.rankError)}</p>}<button className="secondary" disabled={busy} onClick={() => void run(async () => { await api('rank/refresh', {}); await refresh(); })}><RefreshCw size={15} />{t('refreshRank')}</button>{me.complete && !me.discord?.ready && <Link className="primary" href="/settings">{t('linkDiscord')}<ArrowRight size={16} /></Link>}</aside></div>;
+  </form><aside className="panel profile-aside"><span className="eyebrow">DEADLOCK</span><Rank player={me} catalog={catalog} t={t} /><p>{t('rankSource')}</p>{me.rankFetchedAt && <small>{t('updated')} {new Date(me.rankFetchedAt).toLocaleString(locale)}</small>}{me.rankError && <p className="warning-text">{t(me.rankError)}</p>}<button className="secondary" disabled={busy} onClick={() => void run(async () => { await api('rank/refresh', {}); await refresh(); })}><RefreshCw size={15} />{t('refreshRank')}</button><div className="profile-discord-hint"><h2>{t('notifications')}</h2><p>{t('profileDiscordHint')}</p><Link className="primary" href="/settings">{t(me.discord?.ready ? 'settings' : 'linkDiscord')}<ArrowRight size={16} /></Link></div></aside></div>;
 }
 
 function DiscordPanel({ me, t, run, refresh, busy }: { me: Me; t: T; run: Run; refresh: () => Promise<void>; busy: boolean }) {

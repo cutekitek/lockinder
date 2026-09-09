@@ -171,3 +171,9 @@ bun run test:e2e
 Backend tests use an isolated temporary database and mocked provider responses. They cover discovery, rank boundaries, authorization, CSRF, forged/replayed callbacks, duplicate Discord links, overlapping likes, transactional rollback, provider failures, worker leases and persistence. Browser tests run a separate app on port 3100 with a **disposable** `data/e2e.db`, seed controlled accounts directly into that test database and cover both locales, mobile layout, onboarding, filters, pass/reset, likes and contacts. Screenshots and failure traces go into `test-results/`. Never point normal development or production at `data/e2e.db`.
 
 Provider integrations are mocked in automated tests. Before launch, use two accounts you control to finish onboarding, send one like, confirm its real bot DM and contact link, then disable DMs and confirm that the like persists with a repair prompt.
+
+### Complaint recipient
+
+Set `DISCORD_ADMIN_USER_ID` in the server `.env` to the administrator’s numeric Discord user ID. The existing `DISCORD_BOT_TOKEN` is used to send direct messages. The administrator must allow DMs from the bot (and share a server with it). Restart the web service after changing the configuration.
+
+Authenticated users can submit complaints from the navigation bar without connecting their own Discord account. Each message includes the complaint text and the sender’s Steam profile link. Messages are limited to 1500 characters and three submissions per user per ten minutes.

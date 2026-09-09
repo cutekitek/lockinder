@@ -117,6 +117,16 @@ export async function POST(request: Request, context: Context) {
       const response = json({ ok: true }); response.headers.append('Set-Cookie', cookie('session', '', 0)); return response;
     }
     if (path === 'profile') { await saveProfile(user.id, await body(request)); return json({ ok: true }); }
+    if (path === 'complaint') {
+      const { text } = z.object({ text: z.string().trim().min(1).max(1500) }).strict().parse(await body(request));
+      const recipient = process.env.DISCORD_ADMIN_USER_ID?.trim();
+      if (!recipient || !/^\d{17,20}$/.test(recipient) || !process.env.DISCORD_BOT_TOKEN) throw new AppError('complaintUnavailable', 503);
+      rateLimit(`complaint:${user.id}`, 3, 600_000);
+      try {
+        await sendDM(recipient, `Жалоба с Lockinder\nSteam: https://steamcommunity.com/profiles/${user.steamId}\n\n${text}`);
+      } catch { throw new AppError('complaintUnavailable', 503); }
+      return json({ ok: true });
+    }
     if (path === 'filters') { saveFilters(user.id, await body(request)); return json({ ok: true }); }
     if (path === 'settings') {
       const settings = z.object({ paused: z.boolean().optional(), notifications: z.boolean().optional(), locale: z.enum(['en', 'ru']).optional() }).strict().refine(v => Object.keys(v).length > 0).parse(await body(request));

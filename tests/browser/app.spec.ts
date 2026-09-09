@@ -96,11 +96,42 @@ test('profile onboarding allows discovery without Discord', async ({ page, conte
   await context.addCookies([{ name: 'session', value: 'e2e-onboarding', url: 'http://localhost:3100' }]);
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Create your profile' })).toBeVisible();
+  await expect(page.getByText('Connect Discord to receive notifications')).toBeVisible();
+  await page.getByRole('link', { name: 'Connect Discord', exact: true }).click();
+  await expect(page).toHaveURL('/settings');
+  await expect(page.getByRole('heading', { name: 'Connect Discord (optional)' })).toBeVisible();
+  await page.goto('/');
   await page.getByLabel('Display name').fill('Ready Player');
   await page.getByRole('button', { name: 'Save profile' }).click();
   await expect(page.getByRole('heading', { name: 'Find your next teammate' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Like player', exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/onboarding.png', fullPage: true });
+});
+
+test('development notice appears only on the first authenticated visit', async ({ page, context }) => {
+  await page.goto('/');
+  await expect(page.getByRole('link', { name: 'Sign in with Steam' })).toBeVisible();
+  await expect(page.locator('.development-notice')).toHaveCount(0);
+  expect((await context.cookies()).some(cookie => cookie.name === 'lockinder-development-seen')).toBe(false);
+  await context.addCookies([{ name: 'session', value: 'e2e-onboarding', url: 'http://localhost:3100' }]);
+  await page.reload();
+  const notice = page.locator('.development-notice');
+  await expect(notice).toContainText('The site is under active development');
+  await expect(notice).not.toContainText('ferret1029');
+  await expect(notice.getByRole('link')).toHaveCount(0);
+  await page.getByRole('button', { name: 'RU', exact: true }).click();
+  await expect(notice).toContainText('Сайт находится в активной стадии разработки');
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/development-notice-mobile.png', fullPage: true });
+  await notice.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  await expect(notice).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Создание профиля' })).toBeVisible();
+  await expect(notice).toHaveCount(0);
+  const cookie = (await context.cookies()).find(cookie => cookie.name === 'lockinder-development-seen');
+  expect(cookie?.value).toBe('1');
+  expect(cookie?.expires).toBeGreaterThan(Date.now() / 1000);
 });
 
 test('mobile filter expansion, touch swipe and recoverable discovery error', async ({ page, context }) => {
@@ -126,4 +157,33 @@ test('mobile filter expansion, touch swipe and recoverable discovery error', asy
   await page.unroute('**/api/discovery');
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByRole('heading', { name: 'You’ve reached the end of the deck' })).toBeVisible();
+});
+
+test('complaint dialog preserves failed submissions and confirms delivery', async ({ page, context }) => {
+  await context.addCookies([{ name: 'session', value: 'e2e-onboarding', url: 'http://localhost:3100' }]);
+  await page.goto('/');
+  const trigger = page.getByRole('button', { name: 'Report an issue', exact: true });
+  await trigger.click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await dialog.getByLabel('Describe the issue').fill('The profile does not save');
+  await page.route('**/api/complaint', route => route.fulfill({ status: 503, json: { error: 'complaintUnavailable' } }));
+  await dialog.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  await expect(dialog.getByLabel('Describe the issue')).toHaveValue('The profile does not save');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: 'test-results/complaint-mobile.png', fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.route('**/api/complaint', route => {
+    expect(route.request().postDataJSON()).toEqual({ text: 'The profile does not save' });
+    return route.fulfill({ json: { ok: true } });
+  });
+  await dialog.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByText('Your message has been sent to the administrator.', { exact: true })).toBeVisible();
 });
