@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/lib/db';
 import { discord, profiles, sessions, users, passes } from '@/lib/schema';
-import { AppError, authenticate, consumeState, cookie, cookieValue, csrf, hash, id, newSession, newState, rateLimit } from '@/lib/security';
+import { AppError, authenticate, consumeState, cookie, cookieValue, csrf, hash, id, newSession, newState, rateLimit, RateLimitError } from '@/lib/security';
 import { origin, required } from '@/lib/config';
 import { logError, withRequestLog } from '@/lib/logger';
 import { catalog, DiscordError, discordIdentity, refreshRank, sendDM, steamLoginUrl, steamSummary, verifyMembership, verifySteam } from '@/lib/providers';
@@ -18,6 +18,11 @@ function failure(error: unknown) {
   const status = error instanceof AppError ? error.status : error instanceof z.ZodError ? 400 : error instanceof DiscordError && error.status === 429 ? 429 : 503;
   // An unauthenticated /me request is the normal guest bootstrap.
   if (!(error instanceof AppError && error.code === 'unauthorized')) logError('api.request_failed', error, { status }, status >= 500 ? 'error' : 'warn');
+  if (error instanceof RateLimitError) {
+    const response = json({ error: error.code }, error.status);
+    response.headers.set('Retry-After', String(Math.max(1, Math.ceil(error.retryAfter / 1000))));
+    return response;
+  }
   if (error instanceof AppError) return json({ error: error.code }, error.status);
   if (error instanceof z.ZodError) return json({ error: 'invalidInput' }, 400);
   if (error instanceof DiscordError) return json({ error: error.code }, error.status === 429 ? 429 : 503);
@@ -130,10 +135,12 @@ async function post(request: Request, context: Context) {
         logError('complaint.configuration_missing', new AppError('complaintUnavailable', 503), { adminConfigured: !!recipient && /^\d{17,20}$/.test(recipient), botConfigured: !!process.env.DISCORD_BOT_TOKEN });
         throw new AppError('complaintUnavailable', 503);
       }
-      rateLimit(`complaint:${user.id}`, 3, 600_000);
       try {
-        await sendDM(recipient, `Жалоба с Lockinder\nSteam: https://steamcommunity.com/profiles/${user.steamId}\n\n${text}`);
-      } catch (error) { logError('complaint.delivery_failed', error, { userId: user.id }); throw new AppError('complaintUnavailable', 503); }
+        await sendDM(user.id, recipient, `Жалоба с Lockinder\nSteam: https://steamcommunity.com/profiles/${user.steamId}\n\n${text}`);
+      } catch (error) {
+        if (error instanceof RateLimitError) throw error;
+        logError('complaint.delivery_failed', error, { userId: user.id }); throw new AppError('complaintUnavailable', 503);
+      }
       return json({ ok: true });
     }
     if (path === 'filters') { saveFilters(user.id, await body(request)); return json({ ok: true }); }
@@ -157,15 +164,15 @@ async function post(request: Request, context: Context) {
     }
     if (path === 'discord/disconnect') { disconnectDiscord(user.id); return json({ ok: true }); }
     if (path === 'discord/test') {
-      rateLimit(`testDM:${user.id}`, 3, 600_000);
       const linked = db().select().from(discord).where(eq(discord.userId, user.id)).get();
       if (!linked) throw new AppError('linkDiscord');
       try {
         await verifyMembership(linked.discordId);
-        await sendDM(linked.discordId, user.locale === 'ru' ? 'Lockinder подключён. Здесь появятся уведомления, когда ваш профиль кому-то понравится.' : 'Lockinder is connected. You will receive a notification here when someone likes your profile.');
+        await sendDM(user.id, linked.discordId, user.locale === 'ru' ? 'Lockinder подключён. Здесь появятся уведомления, когда ваш профиль кому-то понравится.' : 'Lockinder is connected. You will receive a notification here when someone likes your profile.');
         db().update(discord).set({ ready: true, checkedAt: Date.now(), error: null }).where(and(eq(discord.userId, user.id), eq(discord.discordId, linked.discordId))).run();
 
       } catch (error) {
+        if (error instanceof RateLimitError) throw error;
         db().update(discord).set({ ready: false, error: error instanceof DiscordError ? error.code : 'discordUnavailable' }).where(and(eq(discord.userId, user.id), eq(discord.discordId, linked.discordId))).run();
         throw error;
       }

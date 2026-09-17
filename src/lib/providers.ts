@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from './db';
 import { assets, ranks, users } from './schema';
-import { AppError, claimNonce, id } from './security';
+import { AppError, claimNonce, id, rateLimit } from './security';
 import { DEADLOCK, DISCORD, origin, required } from './config';
 import { logError, providerFetch } from './logger';
 import type { Catalog, Locale } from './model';
@@ -140,7 +140,9 @@ export async function discordIdentity(code: string) {
 export async function verifyMembership(discordId: string) {
   await discordRequest(`/guilds/${required('DISCORD_GUILD_ID')}/members/${discordId}`);
 }
-export async function sendDM(discordId: string, content: string, nonce = id()) {
+export async function sendDM(userId: string, discordId: string, content: string, nonce = id()) {
+  // Charge complaints to their author and personal notifications to their recipient.
+  rateLimit(`discordMessage:${userId}`, 2, 60_000);
   const channel = await discordRequest('/users/@me/channels', { method: 'POST', body: JSON.stringify({ recipient_id: discordId }) });
   const message = await discordRequest(`/channels/${channel.id}/messages`, { method: 'POST', body: JSON.stringify({ content, allowed_mentions: { parse: [] }, nonce, enforce_nonce: true }) });
   return z.string().parse(message.id);

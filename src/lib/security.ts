@@ -7,6 +7,9 @@ import { origin } from './config';
 export class AppError extends Error {
   constructor(public code: string, public status = 400) { super(code); }
 }
+export class RateLimitError extends AppError {
+  constructor(public retryAfter: number) { super('rateLimited', 429); }
+}
 export const token = () => randomBytes(32).toString('hex');
 export const id = () => randomBytes(12).toString('hex');
 export const hash = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -51,11 +54,12 @@ export function claimNonce(nonce: string) {
 }
 export function rateLimit(key: string, max: number, period: number) {
   db().transaction(tx => {
+    const now = Date.now();
     const row = tx.select().from(limits).where(eq(limits.key, key)).get();
-    if (!row || row.resetAt <= Date.now()) {
-      tx.insert(limits).values({ key, count: 1, resetAt: Date.now() + period }).onConflictDoUpdate({ target: limits.key, set: { count: 1, resetAt: Date.now() + period } }).run();
+    if (!row || row.resetAt <= now) {
+      tx.insert(limits).values({ key, count: 1, resetAt: now + period }).onConflictDoUpdate({ target: limits.key, set: { count: 1, resetAt: now + period } }).run();
     } else {
-      if (row.count >= max) throw new AppError('rateLimited', 429);
+      if (row.count >= max) throw new RateLimitError(row.resetAt - now);
       tx.update(limits).set({ count: row.count + 1 }).where(eq(limits.key, key)).run();
     }
   }, { behavior: 'immediate' });

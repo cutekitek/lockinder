@@ -17,7 +17,7 @@ export function communityStats() {
   `).get() as { registeredPlayers: number; teammateConnections: number };
 }
 const profileSchema = z.object({
-  name: z.string().trim().min(2).max(40), country: z.string().refine(c => countries.isValid(c) && /^[A-Z]{2}$/.test(c)),
+  name: z.string().trim().min(2).max(40), country: z.string().refine(c => c === '' || (countries.isValid(c) && /^[A-Z]{2}$/.test(c))).default(''),
   languages: z.array(z.enum(LANGUAGES)).min(1).max(12), roles: z.array(z.enum(ROLES)).min(1).max(5),
   heroes: z.array(z.number().int().positive()).max(12), bio: z.string().trim().max(600)
 }).strict();

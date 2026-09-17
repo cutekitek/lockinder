@@ -74,6 +74,8 @@ A like and its unique outbox job are written in one transaction. The database en
 
 Delivery uses a stable Discord nonce with `enforce_nonce` to suppress recent retries. This is **at-least-once delivery**, not an unlimited exactly-once guarantee: Discord’s nonce deduplication window is finite, so a long outage after Discord accepted a message but before the local acknowledgement can result in a duplicate. Disconnecting or opting out cancels queued work but cannot retract a request already in flight.
 
+All bot messages share a database-backed quota of two send attempts per user per 60-second window. Complaints count toward the author's quota; test messages and like notifications count toward the recipient's quota. API requests over quota return HTTP 429 with `Retry-After`. Like notifications wait in the queue without consuming retries or marking Discord as broken, while other users' messages continue normally.
+
 Run one worker. The initial discovery implementation filters/sorts eligible records in memory and is intended for a single-server MVP; large communities should move ranking/pagination into SQL before scaling.
 
 ### HTTP surface
@@ -176,7 +178,7 @@ Provider integrations are mocked in automated tests. Before launch, use two acco
 
 Set `DISCORD_ADMIN_USER_ID` in the server `.env` to the administrator’s numeric Discord user ID. The existing `DISCORD_BOT_TOKEN` is used to send direct messages. The administrator must allow DMs from the bot (and share a server with it). Restart the web service after changing the configuration.
 
-Authenticated users can submit complaints from the navigation bar without connecting their own Discord account. Each message includes the complaint text and the sender’s Steam profile link. Messages are limited to 1500 characters and three submissions per user per ten minutes.
+Authenticated users can submit complaints from the navigation bar without connecting their own Discord account. Each message includes the complaint text and the sender’s Steam profile link. Messages are limited to 1500 characters and share the bot's quota of two send attempts per user per minute.
 
 ### Error logs
 

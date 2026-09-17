@@ -1,7 +1,7 @@
 import { and, eq, lte, or } from 'drizzle-orm';
 import { db } from './db';
 import { discord, jobs, likes, profiles, ranks, users } from './schema';
-import { id } from './security';
+import { id, RateLimitError } from './security';
 import { DiscordError, sendDM, verifyMembership } from './providers';
 import { origin } from './config';
 import { isBlocked } from './service';
@@ -36,9 +36,14 @@ export async function processJob() {
     const rankLabel = rank?.tier ? `${ru ? 'Ранг' : 'Rank'} ${rank.tier}.${rank.division}` : ru ? 'Без ранга' : 'Unranked';
     const name = sender.name.replace(/[\[\]()*_~`<>@\\]/g, '');
     const message = ru ? `Вы понравились игроку ${name}! ${rankLabel}\nПосмотреть профиль и связаться: ${origin()}/players/${like.senderId}` : `${name} liked your profile! ${rankLabel}\nView their profile and connect: ${origin()}/players/${like.senderId}`;
-    const messageId = await sendDM(connection.discordId, message, job.likeId);
+    const messageId = await sendDM(like.recipientId, connection.discordId, message, job.likeId);
     db().update(jobs).set({ status: 'sent', messageId, leaseToken: null, leaseUntil: null, error: null }).where(owned).run();
   } catch (error) {
+    if (error instanceof RateLimitError) {
+      // Waiting for a user's quota must not exhaust retries or pause other users.
+      db().update(jobs).set({ status: 'pending', attempts: job.attempts - 1, availableAt: Date.now() + error.retryAfter, leaseToken: null, leaseUntil: null, error: error.code }).where(owned).run();
+      return true;
+    }
     logError('worker.delivery_failed', error, { jobId: job.id, attempt: job.attempts, userId: like.recipientId });
     const permanent = error instanceof DiscordError && [400, 403, 404].includes(error.status);
     const code = error instanceof DiscordError ? error.code : 'discordUnavailable';

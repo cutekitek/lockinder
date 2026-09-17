@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { backupDatabase, connection, db, openDatabase } from '../src/lib/db';
-import { assets, authStates, discord, jobs, likes, profiles, ranks, sessions, users } from '../src/lib/schema';
+import { assets, authStates, discord, jobs, likes, limits, profiles, ranks, sessions, users } from '../src/lib/schema';
 import { act, blockUser, disconnectDiscord, discovery, getMe, profileDetail, receivedLikes, saveFilters, saveProfile } from '../src/lib/service';
-import { authenticate, consumeState, csrf, hash, id, newSession, newState, rateLimit } from '../src/lib/security';
-import { catalog, refreshRank, steamAccountId, verifySteam } from '../src/lib/providers';
+import { authenticate, consumeState, csrf, hash, id, newSession, newState, rateLimit, RateLimitError } from '../src/lib/security';
+import { catalog, refreshRank, sendDM, steamAccountId, verifySteam } from '../src/lib/providers';
 import { orderPlayers, rankPosition, type Player } from '../src/lib/model';
 import { processJob } from '../src/lib/worker';
 import { GET, POST } from '../src/app/api/[...path]/route';
@@ -240,6 +240,22 @@ test('profile updates cannot override owner, rank or unexpected fields', async (
   assert.equal(accepted.status, 200); assert.equal(getMe(a).name, 'New name'); assert.notEqual(getMe(b).name, 'New name');
   await assert.rejects(() => saveProfile(a, { ...value, heroes: [9999999] }));
 });
+test('profiles accept an empty or omitted country while rejecting invalid country codes', async () => {
+  const user = fixture({ complete: false });
+  const session = newSession(user);
+  const value = { name: 'New teammate', languages: ['en'], roles: ['Flex'], heroes: [1], bio: '' };
+  for (const input of [{ ...value, country: '' }, { ...value, country: 'US' }, value]) {
+    const response = await POST(request('profile', session, input), context('profile'));
+    assert.equal(response.status, 200);
+    assert.equal(getMe(user).country, 'country' in input ? input.country : '');
+    assert.equal(getMe(user).ready, true);
+  }
+  for (const country of ['ZZ', 'us', 'USA']) {
+    const response = await POST(request('profile', session, { ...value, country }), context('profile'));
+    assert.equal(response.status, 400);
+    assert.equal(getMe(user).country, '');
+  }
+});
 test('rank outage preserves previous value and records a retry cooldown', async () => {
   const user = fixture(); db().update(ranks).set({ fetchedAt: Date.now() - 7200_000 }).run();
   global.fetch = (async () => new Response('', { status: 503 })) as unknown as typeof fetch;
@@ -270,6 +286,73 @@ test('Discord onboarding test checks membership and DM permission before becomin
   mockDiscord();
   assert.equal((await POST(request('discord/test', session), context('discord/test'))).status, 200);
   assert.equal(getMe(user).ready, true);
+});
+test('Discord quota persists, limits concurrent sends per user and resets after one minute', async () => {
+  const user = fixture(), another = fixture();
+  const sent = mockDiscord();
+  const before = Date.now();
+  const results = await Promise.allSettled(Array.from({ length: 3 }, () => sendDM(user, '123456789012345678', 'test')));
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 2);
+  const rejected = results.find(result => result.status === 'rejected');
+  assert.ok(rejected?.status === 'rejected' && rejected.reason instanceof RateLimitError);
+  assert.ok(rejected.reason.retryAfter > 0 && rejected.reason.retryAfter <= 60_000);
+  assert.equal(sent.length, 2);
+  const other = openDatabase(process.env.DATABASE_PATH);
+  try {
+    const row = other.sqlite.prepare('SELECT count, reset_at FROM rate_limits WHERE key = ?').get(`discordMessage:${user}`) as { count: number; reset_at: number };
+    assert.equal(row.count, 2);
+    assert.ok(row.reset_at >= before + 60_000 && row.reset_at <= Date.now() + 60_000);
+  } finally { other.sqlite.close(); }
+  await sendDM(another, '123456789012345678', 'different user');
+  db().update(limits).set({ resetAt: Date.now() - 1 }).where(eq(limits.key, `discordMessage:${user}`)).run();
+  await sendDM(user, '123456789012345678', 'new window');
+  assert.equal(sent.length, 4);
+});
+test('complaints, tests and queued notifications share a user quota without breaking Discord', async () => {
+  const previousAdmin = process.env.DISCORD_ADMIN_USER_ID;
+  process.env.DISCORD_ADMIN_USER_ID = '987654321098765432';
+  try {
+    const user = fixture(), sender = fixture(), otherRecipient = fixture();
+    const session = newSession(user), secondSession = newSession(user);
+    const sent = mockDiscord();
+    assert.equal((await POST(request('complaint', session, { text: 'test' }), context('complaint'))).status, 200);
+    assert.equal((await POST(request('discord/test', secondSession), context('discord/test'))).status, 200);
+    for (const path of ['complaint', 'discord/test']) {
+      const response = await POST(request(path, session, { text: 'test' }), context(path));
+      assert.equal(response.status, 429);
+      assert.equal((await response.json()).error, 'rateLimited');
+      assert.ok(Number(response.headers.get('Retry-After')) > 0 && Number(response.headers.get('Retry-After')) <= 60);
+    }
+    assert.equal(sent.length, 2);
+    act(sender, user, 'like');
+    const queued = db().select().from(jobs).get()!;
+    // Even a job on its last retry must survive quota exhaustion.
+    db().update(jobs).set({ attempts: 4 }).where(eq(jobs.id, queued.id)).run();
+    const before = Date.now();
+    assert.equal(await processJob(), true);
+    const deferred = db().select().from(jobs).where(eq(jobs.id, queued.id)).get()!;
+    assert.equal(deferred.status, 'pending');
+    assert.equal(deferred.attempts, 4);
+    assert.ok(deferred.availableAt > before);
+    assert.equal(deferred.leaseToken, null);
+    assert.equal(getMe(user).discord?.ready, true);
+    assert.equal(getMe(user).discord?.error, null);
+    assert.equal(receivedLikes(user).length, 1);
+    assert.equal(sent.length, 2);
+    act(sender, otherRecipient, 'like');
+    assert.equal(await processJob(), true);
+    assert.equal(sent.length, 3);
+    assert.equal(await processJob(), false);
+    db().update(limits).set({ resetAt: Date.now() - 1 }).where(eq(limits.key, `discordMessage:${user}`)).run();
+    db().update(jobs).set({ availableAt: Date.now() - 1 }).where(eq(jobs.id, queued.id)).run();
+    await processJob();
+    assert.equal(db().select().from(jobs).where(eq(jobs.id, queued.id)).get()?.status, 'sent');
+    assert.equal(sent.length, 4);
+    assert.equal(sent[3].nonce, queued.likeId);
+  } finally {
+    if (previousAdmin === undefined) delete process.env.DISCORD_ADMIN_USER_ID;
+    else process.env.DISCORD_ADMIN_USER_ID = previousAdmin;
+  }
 });
 test('missing server membership fails the requested Discord test', async () => {
   const user = fixture({ ready: false }); mockDiscord(404);
@@ -305,7 +388,10 @@ test('worker reclaims expired leases but leaves active leases alone', async () =
 });
 test('transient failures use bounded retries and preserve received likes on exhaustion', async () => {
   const sender = fixture(), recipient = fixture(); act(sender, recipient, 'like'); mockDiscord(503);
-  for (let i = 0; i < 5; i++) { db().update(jobs).set({ availableAt: Date.now() - 1 }).run(); await processJob(); }
+  for (let i = 0; i < 5; i++) {
+    db().update(limits).set({ resetAt: Date.now() - 1 }).where(eq(limits.key, `discordMessage:${recipient}`)).run();
+    db().update(jobs).set({ availableAt: Date.now() - 1 }).run(); await processJob();
+  }
   assert.equal(db().select().from(jobs).get()?.status, 'failed'); assert.equal(db().select().from(jobs).get()?.attempts, 5);
   assert.equal(receivedLikes(recipient).length, 1);
 });
@@ -367,12 +453,12 @@ test('complaints validate input, deliver to the configured administrator and lim
       assert.equal((await POST(request('complaint', session, { text }), context('complaint'))).status, 400);
     }
     assert.equal(deliveries.length, 0);
-    for (let n = 0; n < 3; n++) assert.equal((await POST(request('complaint', session, { text: '  Bug @everyone  ' }), context('complaint'))).status, 200);
+    for (let n = 0; n < 2; n++) assert.equal((await POST(request('complaint', session, { text: '  Bug @everyone  ' }), context('complaint'))).status, 200);
     assert.equal(deliveries[0].body.recipient_id, '987654321098765432');
     assert.match(String(deliveries[1].body.content), /Steam: https:\/\/steamcommunity.com\/profiles\/\d+\n\nBug @everyone$/);
     assert.deepEqual(deliveries[1].body.allowed_mentions, { parse: [] });
     assert.equal((await POST(request('complaint', session, { text: 'test' }), context('complaint'))).status, 429);
-    assert.equal(deliveries.length, 6);
+    assert.equal(deliveries.length, 4);
     delete process.env.DISCORD_ADMIN_USER_ID;
     assert.equal((await POST(request('complaint', session, { text: 'test' }), context('complaint'))).status, 503);
     process.env.DISCORD_ADMIN_USER_ID = '987654321098765432';

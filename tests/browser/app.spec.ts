@@ -92,20 +92,23 @@ test('rank slider supports dragging, keyboard bounds, persistence and reset', as
   await page.screenshot({ path: 'test-results/rank-slider-mobile.png', fullPage: true });
 });
 
-test('profile onboarding allows discovery without Discord', async ({ page, context }) => {
+test('profile onboarding allows discovery without country or Discord', async ({ page, context }) => {
   await context.addCookies([{ name: 'session', value: 'e2e-onboarding', url: 'http://localhost:3100' }]);
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Create your profile' })).toBeVisible();
   await expect(page.getByText('Connect Discord to receive notifications')).toBeVisible();
   await page.getByRole('link', { name: 'Connect Discord', exact: true }).click();
   await expect(page).toHaveURL('/settings');
-  await expect(page.getByRole('heading', { name: 'Connect Discord (optional)' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Connect Discord (optional)' })).toHaveCount(0);
   await page.goto('/');
   await page.getByLabel('Display name').fill('Ready Player');
+  await page.getByLabel('Country').selectOption('');
   await page.getByRole('button', { name: 'Save profile' }).click();
   await expect(page.getByRole('heading', { name: 'Find your next teammate' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Like player', exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/onboarding.png', fullPage: true });
+  await page.goto('/profile');
+  await expect(page.getByLabel('Country')).toHaveValue('');
 });
 
 test('development notice appears only on the first authenticated visit', async ({ page, context }) => {
