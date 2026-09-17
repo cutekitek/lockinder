@@ -18,6 +18,14 @@ function seed() {
     sqlite.prepare('INSERT INTO sessions (hash, user_id, expires_at) VALUES (?, ?, ?)').run(createHash('sha256').update(`e2e-${key}`).digest('hex'), userId, now + 3600_000);
   }
   for (const [locale, data] of [['en', en], ['ru', ru]] as const) sqlite.prepare('INSERT INTO asset_cache VALUES (?, ?, ?)').run(locale, JSON.stringify({ ...data, stale: false }), now);
+  if (process.argv.includes('--admin')) {
+    for (let n = 0; n < 23; n++) {
+      const userId = (1000 + n).toString(16).padStart(24, '0');
+      sqlite.prepare('INSERT INTO users (id, steam_id, created_at, paused) VALUES (?, ?, ?, 1)').run(userId, String(76561197960266728n + BigInt(n)), now + n);
+      sqlite.prepare('INSERT INTO profiles (user_id, name, complete) VALUES (?, ?, 1)').run(userId, n === 0 ? 'Test Administrator' : `Admin fixture ${n}`);
+      if (n === 0) sqlite.prepare('INSERT INTO sessions (hash, user_id, expires_at) VALUES (?, ?, ?)').run(createHash('sha256').update('e2e-admin').digest('hex'), userId, now + 3600_000);
+    }
+  }
   sqlite.close();
 }
 seed();

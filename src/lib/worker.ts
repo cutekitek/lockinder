@@ -23,7 +23,8 @@ export async function processJob() {
   const recipient = db().select().from(users).where(eq(users.id, like.recipientId)).get();
   const connection = db().select().from(discord).where(eq(discord.userId, like.recipientId)).get();
   const sender = db().select().from(profiles).where(eq(profiles.userId, like.senderId)).get();
-  if (!recipient?.notifications || !connection?.ready || !sender || isBlocked(like.senderId, like.recipientId)) {
+  const senderUser = db().select().from(users).where(eq(users.id, like.senderId)).get();
+  if (!recipient?.notifications || recipient.banned || !connection?.ready || !sender || !senderUser || senderUser.banned || isBlocked(like.senderId, like.recipientId)) {
     db().update(jobs).set({ status: 'cancelled', leaseToken: null }).where(owned).run();
     return true;
   }

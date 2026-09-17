@@ -1,5 +1,15 @@
 import type { Locale } from './model';
 const en = {
+  admin: 'Admin panel', adminHint: 'Users, player reports and account moderation.', administrator: 'Administrator',
+  allUsers: 'All users', reportedUsers: 'Reported users', userLists: 'User lists',
+  searchUsers: 'Search users', searchUsersHint: 'Name, SteamID or Discord username', search: 'Search',
+  user: 'User', status: 'Status', registeredAt: 'Registered', playerReports: 'Reports', moderation: 'Moderation',
+  activeProfile: 'Active', incompleteProfile: 'Incomplete profile', pausedProfile: 'Paused', banned: 'Banned',
+  reportPlayer: 'Report player', reportReason: 'Reason for reporting', reportHint: 'Describe what happened. Your report will be saved for administrator review.', reportSent: 'Your report has been saved for administrator review.',
+  viewReports: 'View reports', closeReports: 'Close reports', noPlayerReports: 'No reports yet.', noReportedUsers: 'No reported users.', noUsers: 'No users found.',
+  pagination: 'Pagination', totalUsers: 'Total', page: 'Page', previousPage: 'Previous', nextPage: 'Next', loadingAdmin: 'Loading users…',
+  banUser: 'Ban user', unbanUser: 'Unban user', banHint: 'Their profile will be hidden from everyone. Current sessions will end and sign-in will be blocked.', unbanHint: 'This user will be able to sign in again. Their existing profile visibility settings will apply.', moderationSaved: 'Account status updated.',
+  accountBanned: 'Your account has been banned. Sign-in is unavailable.', cannotBanAdmin: 'Administrator accounts cannot be banned.',
   developmentNotice: 'The site is under active development.',
   complaint: 'Report an issue', complaintText: 'Describe the issue', complaintHint: 'Your message will be sent to the administrator along with a link to your Steam profile.', complaintSend: 'Send', complaintSent: 'Your message has been sent to the administrator.', complaintUnavailable: 'Could not send your message. Please try again later.',
   profileDiscordHint: 'Connect Discord to receive notifications when someone likes your profile.',
@@ -65,6 +75,16 @@ const en = {
   readyBadge: 'READY TO PLAY', setupBadge: 'LET’S GET YOU SET UP'
 };
 const ru: Record<keyof typeof en, string> = {
+  admin: 'Админ-панель', adminHint: 'Пользователи, жалобы на игроков и блокировки аккаунтов.', administrator: 'Администратор',
+  allUsers: 'Все пользователи', reportedUsers: 'Пользователи с жалобами', userLists: 'Списки пользователей',
+  searchUsers: 'Поиск пользователей', searchUsersHint: 'Имя, SteamID или имя в Discord', search: 'Найти',
+  user: 'Пользователь', status: 'Статус', registeredAt: 'Регистрация', playerReports: 'Жалобы', moderation: 'Модерация',
+  activeProfile: 'Активен', incompleteProfile: 'Профиль не заполнен', pausedProfile: 'На паузе', banned: 'Забанен',
+  reportPlayer: 'Пожаловаться на игрока', reportReason: 'Причина жалобы', reportHint: 'Опишите, что произошло. Жалоба будет сохранена для рассмотрения администратором.', reportSent: 'Жалоба сохранена для рассмотрения администратором.',
+  viewReports: 'Посмотреть жалобы', closeReports: 'Закрыть жалобы', noPlayerReports: 'Жалоб пока нет.', noReportedUsers: 'Пользователей с жалобами пока нет.', noUsers: 'Пользователи не найдены.',
+  pagination: 'Пагинация', totalUsers: 'Всего', page: 'Страница', previousPage: 'Назад', nextPage: 'Далее', loadingAdmin: 'Загружаем пользователей…',
+  banUser: 'Забанить', unbanUser: 'Снять бан', banHint: 'Профиль будет скрыт от всех. Активные сессии завершатся, а вход в аккаунт будет заблокирован.', unbanHint: 'Пользователь снова сможет войти в аккаунт. Будут действовать его прежние настройки видимости профиля.', moderationSaved: 'Статус аккаунта обновлён.',
+  accountBanned: 'Ваш аккаунт заблокирован. Вход недоступен.', cannotBanAdmin: 'Нельзя забанить администратора.',
   developmentNotice: 'Сайт находится в активной стадии разработки.',
   complaint: 'Сообщить о проблеме', complaintText: 'Опишите проблему', complaintHint: 'Сообщение будет отправлено администратору вместе со ссылкой на ваш Steam-профиль.', complaintSend: 'Отправить', complaintSent: 'Сообщение отправлено администратору.', complaintUnavailable: 'Не удалось отправить сообщение. Попробуйте позже.',
   profileDiscordHint: 'Подключите Discord, чтобы получать уведомления о лайках вашего профиля.',

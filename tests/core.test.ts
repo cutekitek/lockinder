@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { backupDatabase, connection, db, openDatabase } from '../src/lib/db';
-import { assets, authStates, discord, jobs, likes, limits, profiles, ranks, sessions, users } from '../src/lib/schema';
+import { assets, authStates, discord, jobs, likes, limits, playerReports, profiles, ranks, sessions, users } from '../src/lib/schema';
+import { adminReports, adminUsers, reportPlayer, setUserBan } from '../src/lib/admin';
 import { act, blockUser, disconnectDiscord, discovery, getMe, profileDetail, receivedLikes, saveFilters, saveProfile } from '../src/lib/service';
 import { authenticate, consumeState, csrf, hash, id, newSession, newState, rateLimit, RateLimitError } from '../src/lib/security';
 import { catalog, refreshRank, sendDM, steamAccountId, verifySteam } from '../src/lib/providers';
@@ -20,6 +21,7 @@ process.env.APP_URL = 'http://localhost:3000';
 process.env.DISCORD_BOT_TOKEN = 'test-only';
 process.env.DISCORD_GUILD_ID = '123456789012345678';
 const originalFetch = global.fetch;
+const originalAdminIds = process.env.ADMIN_STEAM_IDS;
 let sequence = 0;
 function fixture(options: { language?: string; tier?: number | null; division?: number | null; ready?: boolean; paused?: boolean; complete?: boolean } = {}) {
   const userId = id(); const n = ++sequence;
@@ -45,11 +47,12 @@ function mockDiscord(status = 200) {
   return sent;
 }
 beforeEach(() => {
+  process.env.ADMIN_STEAM_IDS = '';
   connection().sqlite.exec('DELETE FROM users; DELETE FROM nonces; DELETE FROM rate_limits; DELETE FROM asset_cache; DELETE FROM auth_states;');
   global.fetch = (async () => { throw new Error('Unexpected network request in test'); }) as unknown as typeof fetch;
   db().insert(assets).values({ key: 'en', json: JSON.stringify({ ...enCatalog, stale: false }), fetchedAt: Date.now() }).run();
 });
-afterEach(() => { global.fetch = originalFetch; });
+afterEach(() => { global.fetch = originalFetch; if (originalAdminIds === undefined) delete process.env.ADMIN_STEAM_IDS; else process.env.ADMIN_STEAM_IDS = originalAdminIds; });
 after(() => { connection().sqlite.close(true); rmSync(directory, { recursive: true, force: true }); });
 
 test('Bun SQLite backups include committed WAL data and refuse overwrite', () => {
@@ -398,7 +401,7 @@ test('transient failures use bounded retries and preserve received likes on exha
 test('SQLite data and applied migration history survive reopen', () => {
   const user = fixture(); const another = openDatabase(process.env.DATABASE_PATH);
   assert.ok(another.sqlite.prepare('SELECT id FROM users WHERE id = ?').get(user));
-  assert.equal((another.sqlite.prepare('SELECT count(*) AS n FROM _migrations').get() as { n: number }).n, 1);
+  assert.deepEqual(another.sqlite.prepare('SELECT name FROM _migrations ORDER BY name').all(), [{ name: '0001_initial.sql' }, { name: '0002_player_reports.sql' }, { name: '0003_user_bans.sql' }]);
   assert.deepEqual(another.sqlite.query('PRAGMA journal_mode').get(), { journal_mode: 'wal' }); another.sqlite.close(true);
 });
 
@@ -471,6 +474,108 @@ test('complaints validate input, deliver to the configured administrator and lim
     if (previous === undefined) delete process.env.DISCORD_ADMIN_USER_ID;
     else process.env.DISCORD_ADMIN_USER_ID = previous;
   }
+});
+
+function adminFixture() {
+  const user = db().select().from(users).where(eq(users.id, fixture())).get()!;
+  process.env.ADMIN_STEAM_IDS = user.steamId;
+  return { user, session: newSession(user.id) };
+}
+function getRequest(path: string, session: string) {
+  return GET(new Request(`http://localhost:3000/api/${path}`, { headers: { cookie: `session=${session}` } }), context(path.split('?')[0]));
+}
+
+test('player reports validate targets, persist without Discord, throttle authors and stay private', async () => {
+  const reporter = fixture(), target = fixture(), session = newSession(reporter);
+  for (const value of [{ target, text: ' ' }, { target, text: 'x'.repeat(1501) }, { target: reporter, text: 'self' }, { target, text: 'forged', reporterId: target }]) {
+    assert.equal((await POST(request('reports', session, value), context('reports'))).status, 400);
+  }
+  assert.equal((await POST(request('reports', '', { target, text: 'test' }), context('reports'))).status, 401);
+  assert.equal((await POST(request('reports', session, { target: '0'.repeat(24), text: 'test' }), context('reports'))).status, 404);
+  for (let n = 0; n < 2; n++) assert.equal((await POST(request('reports', session, { target, text: '  Abuse in chat  ' }), context('reports'))).status, 200);
+  assert.equal((await POST(request('reports', session, { target, text: 'third' }), context('reports'))).status, 429);
+  const reports = db().select().from(playerReports).all();
+  assert.equal(reports.length, 2); assert.ok(reports.every(r => r.reporterId === reporter && r.targetId === target && r.text === 'Abuse in chat'));
+  assert.equal((await getRequest(`admin/users/${target}/reports`, session)).status, 403);
+  assert.equal('reports' in profileDetail(reporter, target), false);
+  const reopened = openDatabase(process.env.DATABASE_PATH);
+  assert.equal((reopened.sqlite.prepare('SELECT count(*) AS n FROM player_reports').get() as { n: number }).n, 2);
+  reopened.sqlite.close();
+});
+
+test('admin APIs enforce allowlist, validate pagination and search Unicode names and identifiers', async () => {
+  const { user: admin, session } = adminFixture();
+  const first = fixture(), second = fixture({ complete: false }), third = fixture({ paused: true });
+  db().update(profiles).set({ name: 'Ёжик [*] Тест' }).where(eq(profiles.userId, first)).run();
+  reportPlayer(second, { target: first, text: 'first report' });
+  reportPlayer(third, { target: first, text: 'second report' });
+  assert.equal((await getRequest('admin/users', '')).status, 401);
+  assert.equal((await getRequest('admin/users', newSession(first))).status, 403);
+  assert.equal(getMe(admin.id).isAdmin, true); assert.equal(getMe(first).isAdmin, false);
+  const a = await (await getRequest('admin/users?pageSize=2', session)).json();
+  const b = await (await getRequest('admin/users?pageSize=2&page=2', session)).json();
+  assert.equal(a.total, 4); assert.equal(a.totalPages, 2); assert.equal(a.users.length, 2);
+  assert.equal(new Set([...a.users, ...b.users].map((u: { id: string }) => u.id)).size, 4);
+  assert.equal(adminUsers({ page: 999, pageSize: 2 }).page, 2);
+  for (const q of ['ёжИК', '[*]', db().select().from(users).where(eq(users.id, first)).get()!.steamId, db().select().from(discord).where(eq(discord.userId, first)).get()!.username.toUpperCase()]) {
+    assert.deepEqual(adminUsers({ q }).users.map(u => u.id), [first]);
+  }
+  assert.equal(adminUsers({ q: "' OR 1=1 --" }).total, 0);
+  const reported = await (await getRequest('admin/users?scope=reported', session)).json();
+  assert.equal(reported.total, 1); assert.equal(reported.users[0].id, first); assert.equal(reported.users[0].reportCount, 2);
+  const details = await (await getRequest(`admin/users/${first}/reports?pageSize=1`, session)).json();
+  assert.equal(details.total, 2); assert.equal(details.reports.length, 1); assert.equal(details.totalPages, 2);
+  assert.notEqual(adminReports(first, { pageSize: 1, page: 2 }).reports[0].id, details.reports[0].id);
+  for (const query of ['page=0', 'page=1.5', 'pageSize=101', 'pageSize=-1', 'scope=invalid', 'q=' + 'a'.repeat(101)]) assert.equal((await getRequest(`admin/users?${query}`, session)).status, 400);
+  process.env.ADMIN_STEAM_IDS = '';
+  assert.equal((await getRequest('admin/users', session)).status, 403);
+});
+
+test('admin bans revoke access, hide profiles everywhere and cancel both directions of notifications', async () => {
+  const { user: admin, session } = adminFixture();
+  const target = fixture(), viewer = fixture(), other = fixture();
+  const oldSession = newSession(target), viewerSession = newSession(viewer);
+  reportPlayer(viewer, { target, text: 'Please review' });
+  act(target, viewer, 'like'); act(other, target, 'like');
+  assert.equal((await POST(request('admin/ban', viewerSession, { target, banned: true }), context('admin/ban'))).status, 403);
+  const forged = new Request('http://localhost:3000/api/admin/ban', { method: 'POST', headers: { origin: 'https://evil.example', cookie: `session=${session}`, 'content-type': 'application/json' }, body: JSON.stringify({ target, banned: true }) });
+  assert.equal((await POST(forged, context('admin/ban'))).status, 403);
+  assert.equal((await POST(request('admin/ban', session, { target: admin.id, banned: true }), context('admin/ban'))).status, 400);
+  assert.equal((await POST(request('admin/ban', session, { target, banned: true }), context('admin/ban'))).status, 200);
+  assert.equal(db().select().from(users).where(eq(users.id, target)).get()?.banned, true);
+  assert.equal((await getRequest('me', oldSession)).status, 401);
+  assert.throws(() => newSession(target), /accountBanned/);
+  assert.throws(() => getMe(target), /accountBanned/);
+  assert.ok(!discovery(viewer).players.some(p => p.id === target));
+  assert.equal(receivedLikes(viewer).length, 0);
+  assert.throws(() => profileDetail(viewer, target), /notFound/);
+  assert.throws(() => act(viewer, target, 'like'), /notFound/);
+  blockUser(viewer, target); assert.equal(getMe(viewer).blocks.length, 0);
+  assert.ok(db().select().from(jobs).all().every(job => job.status === 'cancelled'));
+  assert.equal(await processJob(), false);
+  assert.equal(adminUsers({ scope: 'reported' }).users[0].banned, true);
+  assert.equal(adminReports(target, {}).total, 1);
+  // Even a session inserted after revocation must fail the per-request ban check.
+  db().insert(sessions).values({ hash: hash('stale'), userId: target, expiresAt: Date.now() + 60_000 }).run();
+  assert.equal((await getRequest('me', 'stale')).status, 403);
+  setUserBan(admin, { target, banned: false });
+  assert.equal(getMe(target).ready, true); assert.doesNotThrow(() => newSession(target));
+  assert.ok(db().select().from(jobs).all().every(job => job.status === 'cancelled'));
+});
+
+test('banned Steam accounts receive an explicit login error and no new session', async () => {
+  const { user: admin } = adminFixture();
+  const target = fixture();
+  const steamId = db().select().from(users).where(eq(users.id, target)).get()!.steamId;
+  setUserBan(admin, { target, banned: true });
+  const state = newState('steam'), callback = steamCallback();
+  callback.searchParams.set('state', state);
+  callback.searchParams.set('openid.return_to', `http://localhost:3000/api/auth/steam/callback?state=${state}`);
+  for (const key of ['claimed_id', 'identity']) callback.searchParams.set(`openid.${key}`, `https://steamcommunity.com/openid/id/${steamId}`);
+  global.fetch = (async () => new Response('is_valid:true\n')) as unknown as typeof fetch;
+  const response = await GET(new Request(callback, { headers: { cookie: `steam_state=${state}` } }), context('auth/steam/callback'));
+  assert.equal(response.headers.get('location'), 'http://localhost:3000/?error=accountBanned');
+  assert.equal(db().select().from(sessions).where(eq(sessions.userId, target)).all().length, 0);
 });
 
 test('API error logs correlate Discord failures without exposing message text or credentials', async () => {

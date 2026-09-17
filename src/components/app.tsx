@@ -14,6 +14,7 @@ import countryRu from 'i18n-iso-countries/langs/ru.json';
 import { LANGUAGES, ROLES, rankPosition, type Catalog, type Filters, type Locale, type Player } from '@/lib/model';
 import { translator } from '@/lib/i18n';
 import type { getMe } from '@/lib/service';
+import { AdminPanel } from './admin-panel';
 
 countries.registerLocale(countryEn); countries.registerLocale(countryRu);
 type Me = ReturnType<typeof getMe> & { discordInvite: string | null; discordConfigured: boolean };
@@ -59,6 +60,7 @@ export function App() {
   const [notice, setNotice] = useState<{ key: string; error: boolean } | null>(null);
   const [developmentNotice, setDevelopmentNotice] = useState(false);
   const [complaintOpen, setComplaintOpen] = useState(false);
+  const [reportTarget, setReportTarget] = useState<Pick<Player, 'id' | 'name'> | null>(null);
   const [bootError, setBootError] = useState(false);
   const [players, setPlayers] = useState<Player[]>([]);
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -83,7 +85,7 @@ export function App() {
           }
         }
       } catch (error) {
-        if (active && error instanceof Error && error.message !== 'unauthorized') { setBootError(true); setNotice({ key: error.message, error: true }); }
+        if (active && error instanceof Error && error.message !== 'unauthorized') { setBootError(error.message !== 'accountBanned'); setNotice({ key: error.message, error: true }); }
       } finally { if (active) setBooting(false); }
       const error = new URLSearchParams(window.location.search).get('error');
       if (error && active) { setNotice({ key: error, error: true }); window.history.replaceState(null, '', path); }
@@ -131,6 +133,7 @@ export function App() {
     if (me) void api('settings', { locale: value }).catch(() => setNotice({ key: 'unavailable', error: true }));
   };
   const nav = [ { href: '/', label: 'discover', icon: Compass }, { href: '/likes', label: 'likes', icon: Heart }, { href: '/profile', label: 'profile', icon: UserRound }, { href: '/settings', label: 'settings', icon: MessageCircle } ];
+  if (me?.isAdmin) nav.push({ href: '/admin', label: 'admin', icon: ShieldCheck });
   const action = async (target: string, kind: 'like' | 'pass') => {
     await run(async () => {
       await api(kind, { target });
@@ -160,22 +163,25 @@ export function App() {
         <div className="sidebar-bottom"><button className="text-button" disabled={busy} onClick={() => void run(async () => { await api('logout', {}); setMe(null); router.push('/'); })}><LogOut size={16} />{t('logout')}</button></div>
       </aside>
       <main className="main-content">
+        {path === '/admin' ? me.isAdmin ? <AdminPanel locale={locale} /> : <Empty title={t('forbidden')} text="" /> : <>
         {path === '/' && !me.complete ? <><PageTitle title={t('setupTitle')} subtitle={t('setupSub')} eyebrow={t('setupBadge')} /><Steps me={me} t={t} /><ProfileForm me={me} locale={locale} catalog={catalog} t={t} busy={busy} run={run} refresh={refresh} /></> :
         path === '/' && me.paused ? <Empty title={t('pausedTitle')} text={t('pausedText')}><button className="primary" disabled={busy} onClick={() => void run(async () => { await api('settings', { paused: false }); await refresh(); })}>{t('resume')}<ArrowRight size={17} /></button></Empty> :
-        path === '/' ? <><PageTitle title={t('discoveryTitle')} subtitle="" /><div className="discovery-layout"><section className="deck">{loading ? <Loading t={t} /> : feedError ? <Empty title={t('unavailable')} text=""><button className="secondary" onClick={() => { setNotice(null); setFeedVersion(n => n + 1); }}>{t('retry')}</button></Empty> : players[0] ? <PlayerCard key={players[0].id} player={players[0]} me={me} catalog={catalog} locale={locale} t={t} busy={busy} onAction={kind => void action(players[0].id, kind)} onBlock={() => block(players[0].id)} /> : <Empty title={t('emptyTitle')} text={t('emptyText')}><button className="secondary" disabled={busy} onClick={() => void run(async () => { await api('passes/reset', {}); setFeedVersion(n => n + 1); })}><RefreshCw size={16} />{t('reviewPassed')}</button></Empty>}</section><FilterPanel filters={me.filters} catalog={catalog} t={t} busy={busy} onSave={f => void run(async () => { await api('filters', f); await refresh(); setFeedVersion(n => n + 1); })} /></div></> :
+        path === '/' ? <><PageTitle title={t('discoveryTitle')} subtitle="" /><div className="discovery-layout"><section className="deck">{loading ? <Loading t={t} /> : feedError ? <Empty title={t('unavailable')} text=""><button className="secondary" onClick={() => { setNotice(null); setFeedVersion(n => n + 1); }}>{t('retry')}</button></Empty> : players[0] ? <PlayerCard key={players[0].id} player={players[0]} me={me} catalog={catalog} locale={locale} t={t} busy={busy} onAction={kind => void action(players[0].id, kind)} onBlock={() => block(players[0].id)} onReport={() => setReportTarget(players[0])} /> : <Empty title={t('emptyTitle')} text={t('emptyText')}><button className="secondary" disabled={busy} onClick={() => void run(async () => { await api('passes/reset', {}); setFeedVersion(n => n + 1); })}><RefreshCw size={16} />{t('reviewPassed')}</button></Empty>}</section><FilterPanel filters={me.filters} catalog={catalog} t={t} busy={busy} onSave={f => void run(async () => { await api('filters', f); await refresh(); setFeedVersion(n => n + 1); })} /></div></> :
         path === '/profile' ? <><PageTitle title={t('profile')} subtitle={t('editSub')} /><ProfileForm me={me} locale={locale} catalog={catalog} t={t} busy={busy} run={run} refresh={refresh} /></> :
         path === '/settings' ? <><PageTitle title={t('settings')} subtitle={t('discordSub')} /><DiscordPanel me={me} t={t} run={run} refresh={refresh} busy={busy} /><section className="panel settings-panel">{(['paused', 'notifications'] as const).map(key => <label className="toggle-row" key={key}><span><strong>{t(key === 'paused' ? 'pause' : 'notifications')}</strong><small>{t(key === 'paused' ? 'pauseHint' : 'notificationsHint')}</small></span><input type="checkbox" role="switch" checked={me[key]} disabled={busy} onChange={e => updateSetting(key, e.target.checked)} /></label>)}</section><section className="panel"><h2>{t('blockedPlayers')}</h2>{me.blocks.length ? me.blocks.map(p => <div className="blocked-row" key={p.id}><span>{p.name}</span><button className="text-button" disabled={busy} onClick={() => void run(async () => { await api('block', { target: p.id, remove: true }); await refresh(); })}>{t('unblock')}</button></div>) : <p className="muted">{t('noBlocks')}</p>}</section></> :
         path === '/likes' ? <><PageTitle title={t('likes')} subtitle={t('likesSub')} />{loading ? <Loading t={t} /> : feedError ? <Empty title={t('unavailable')} text=""><button className="secondary" onClick={() => { setNotice(null); setFeedVersion(n => n + 1); }}>{t('retry')}</button></Empty> : players.length ? <div className="likes-grid">{players.map(p => <Link className="like-card" href={`/players/${p.id}`} key={p.id}><Avatar player={p} large /><h2>{p.name}</h2><Rank player={p} catalog={catalog} t={t} /><p>{p.languages.map(l => language(l, locale)).join(' · ')}</p><span className="card-link">{t('viewProfile')}<ArrowRight size={17} /></span></Link>)}</div> : <Empty title={t('noLikes')} text={t('noLikesText')}><Link className="primary" href="/">{t('discover')}<ArrowRight size={17} /></Link></Empty>}</> :
-        path.startsWith('/players/') ? <><Link className="back-link" href="/"><ArrowLeft size={16} />{t('back')}</Link>{loading ? <Loading t={t} /> : feedError || !detail ? <Empty title={t('profileUnavailable')} text="" /> : <div className="detail-layout"><PlayerCard player={detail} me={me} catalog={catalog} locale={locale} t={t} busy={busy} onBlock={() => block(detail.id)} /><section className="panel contact-panel"><MessageCircle size={30} /><h2>{t('connectLabel')}</h2><p>{t('contactHint')}</p>{detail.discordUsername && <><span className="discord-username">@{detail.discordUsername}</span><button className="secondary" onClick={() => void run(async () => { await navigator.clipboard.writeText(detail.discordUsername!); }, 'copied')}><Copy size={16} />{t('copyUsername')}</button></>}{detail.discordId && <a className="primary" href={`https://discord.com/users/${detail.discordId}`} target="_blank" rel="noreferrer">{t('connectDiscord')}<ExternalLink size={16} /></a>}{detail.steamUrl && <a className="secondary" href={detail.steamUrl} target="_blank" rel="noreferrer">{t('connectSteam')}<ExternalLink size={16} /></a>}</section></div>}</> : <Empty title={t('notFound')} text=""><Link className="primary" href="/">{t('back')}</Link></Empty>}
+        path.startsWith('/players/') ? <><Link className="back-link" href="/"><ArrowLeft size={16} />{t('back')}</Link>{loading ? <Loading t={t} /> : feedError || !detail ? <Empty title={t('profileUnavailable')} text="" /> : <div className="detail-layout"><PlayerCard player={detail} me={me} catalog={catalog} locale={locale} t={t} busy={busy} onBlock={() => block(detail.id)} onReport={() => setReportTarget(detail)} /><section className="panel contact-panel"><MessageCircle size={30} /><h2>{t('connectLabel')}</h2><p>{t('contactHint')}</p>{detail.discordUsername && <><span className="discord-username">@{detail.discordUsername}</span><button className="secondary" onClick={() => void run(async () => { await navigator.clipboard.writeText(detail.discordUsername!); }, 'copied')}><Copy size={16} />{t('copyUsername')}</button></>}{detail.discordId && <a className="primary" href={`https://discord.com/users/${detail.discordId}`} target="_blank" rel="noreferrer">{t('connectDiscord')}<ExternalLink size={16} /></a>}{detail.steamUrl && <a className="secondary" href={detail.steamUrl} target="_blank" rel="noreferrer">{t('connectSteam')}<ExternalLink size={16} /></a>}</section></div>}</> : <Empty title={t('notFound')} text=""><Link className="primary" href="/">{t('back')}</Link></Empty>}
+        </>}
       </main>
     </div>}
     {path === '/' && <CommunityStats locale={locale} t={t} refreshKey={feedVersion} />}
     {me && complaintOpen && <ComplaintModal t={t} onClose={() => setComplaintOpen(false)} onSent={() => { setComplaintOpen(false); setNotice({ key: 'complaintSent', error: false }); }} />}
+    {me && reportTarget && <ComplaintModal t={t} target={reportTarget} onClose={() => setReportTarget(null)} onSent={() => { setReportTarget(null); setNotice({ key: 'reportSent', error: false }); }} />}
     <footer><span>{t('unofficial')}</span></footer>
   </div>;
 }
 
-function ComplaintModal({ t, onClose, onSent }: { t: T; onClose: () => void; onSent: () => void }) {
+function ComplaintModal({ t, target, onClose, onSent }: { t: T; target?: Pick<Player, 'id' | 'name'>; onClose: () => void; onSent: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const sending = useRef(false);
   const [text, setText] = useState('');
@@ -192,13 +198,13 @@ function ComplaintModal({ t, onClose, onSent }: { t: T; onClose: () => void; onS
       event.preventDefault();
       if (sending.current || !text.trim()) return;
       sending.current = true; setBusy(true); setError(null);
-      try { await api('complaint', { text: text.trim() }); onSent(); }
+      try { await api(target ? 'reports' : 'complaint', { text: text.trim(), ...(target ? { target: target.id } : {}) }); onSent(); }
       catch (error) { setError(error instanceof Error ? error.message : 'complaintUnavailable'); }
       finally { sending.current = false; setBusy(false); }
     }}>
-      <div className="complaint-heading"><h2 id="complaint-title">{t('complaint')}</h2><button type="button" disabled={busy} onClick={onClose} aria-label={t('close')}><X size={20} /></button></div>
-      <p id="complaint-hint" className="muted">{t('complaintHint')}</p>
-      <label htmlFor="complaint-text">{t('complaintText')}</label>
+      <div className="complaint-heading"><h2 id="complaint-title">{target ? `${t('reportPlayer')}: ${target.name}` : t('complaint')}</h2><button type="button" disabled={busy} onClick={onClose} aria-label={t('close')}><X size={20} /></button></div>
+      <p id="complaint-hint" className="muted">{t(target ? 'reportHint' : 'complaintHint')}</p>
+      <label htmlFor="complaint-text">{t(target ? 'reportReason' : 'complaintText')}</label>
       <textarea id="complaint-text" required maxLength={1500} rows={6} value={text} disabled={busy} onChange={event => setText(event.target.value)} />
       <small>{text.length} / 1500</small>
       {error && <p role="alert" className="warning-text">{t(error)}</p>}
@@ -244,7 +250,7 @@ function Guest({ t }: { t: T }) {
 function Steps({ me, t }: { me: Me; t: T }) {
   return <div className="steps">{[['stepProfile', me.complete], ['stepReady', me.ready]].map(([key, complete], i) => <div className={complete ? 'done' : ''} key={String(key)}><span>{complete ? <Check size={15} /> : `0${i + 1}`}</span>{t(String(key))}{i < 1 && <ChevronRight size={16} />}</div>)}</div>;
 }
-function PlayerCard({ player, me, catalog, locale, t, busy, onAction, onBlock }: { player: Player; me: Me; catalog: Catalog | null; locale: Locale; t: T; busy: boolean; onAction?: (kind: 'like' | 'pass') => void; onBlock: () => void }) {
+function PlayerCard({ player, me, catalog, locale, t, busy, onAction, onBlock, onReport }: { player: Player; me: Me; catalog: Catalog | null; locale: Locale; t: T; busy: boolean; onAction?: (kind: 'like' | 'pass') => void; onBlock: () => void; onReport: () => void }) {
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const heroList = catalog?.heroes.filter(h => player.heroes.includes(h.id)) || [];
   const shared = player.languages.some(l => me.languages.includes(l));
@@ -263,7 +269,7 @@ function PlayerCard({ player, me, catalog, locale, t, busy, onAction, onBlock }:
       <p className="rank-freshness">{stale && <span>{t('rankStale')} · </span>}{player.rankFetchedAt ? `${t('updated')} ${new Date(player.rankFetchedAt).toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' })}` : t('unavailableRank')}<br />{t('rankSource')}</p>
     </div>
     {onAction && <div className="swipe-actions"><button className="pass-button" disabled={busy} onClick={() => onAction('pass')}><X size={22} />{t('pass')}</button><button className="like-button" disabled={busy} onClick={() => onAction('like')}><Heart size={21} />{t('like')}</button></div>}
-    <button className="block-button" disabled={busy} onClick={onBlock}><Ban size={12} />{t('block')}</button>
+    <div className="player-moderation"><button className="block-button" disabled={busy} onClick={onBlock}><Ban size={12} />{t('block')}</button>{player.id !== me.id && <button className="block-button" disabled={busy} onClick={onReport}><MessageCircle size={12} />{t('reportPlayer')}</button>}</div>
   </div>;
 }
 function RankRange({ catalog, t, filters, disabled, onChange }: { catalog: Catalog | null; t: T; filters: Filters; disabled: boolean; onChange: (range: Pick<Filters, 'minRank' | 'maxRank'>) => void }) {

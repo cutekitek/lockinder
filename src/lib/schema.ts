@@ -5,6 +5,8 @@ export const users = sqliteTable('users', {
   avatar: text('avatar').notNull().default(''), locale: text('locale').notNull().default('en'),
   paused: integer('paused', { mode: 'boolean' }).notNull().default(false),
   notifications: integer('notifications', { mode: 'boolean' }).notNull().default(true),
+  banned: integer('banned', { mode: 'boolean' }).notNull().default(false),
+  bannedAt: integer('banned_at'), bannedBy: text('banned_by'),
   createdAt: integer('created_at').notNull()
 });
 export const profiles = sqliteTable('profiles', {
@@ -60,4 +62,10 @@ export const jobs = sqliteTable('notification_jobs', {
   error: text('error'), messageId: text('message_id')
 }, t => [index('jobs_due').on(t.status, t.availableAt)]);
 export const limits = sqliteTable('rate_limits', { key: text('key').primaryKey(), count: integer('count').notNull(), resetAt: integer('reset_at').notNull() });
+export const playerReports = sqliteTable('player_reports', {
+  id: text('id').primaryKey(),
+  reporterId: text('reporter_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  targetId: text('target_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  text: text('text').notNull(), createdAt: integer('created_at').notNull()
+}, t => [index('reports_target_created').on(t.targetId, t.createdAt), index('reports_reporter').on(t.reporterId)]);
 export const assets = sqliteTable('asset_cache', { key: text('key').primaryKey(), json: text('json').notNull(), fetchedAt: integer('fetched_at').notNull() });

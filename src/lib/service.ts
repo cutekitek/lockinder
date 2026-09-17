@@ -6,6 +6,7 @@ import { users, profiles, discord, ranks, preferences, likes, passes, blocks, jo
 import { AppError, id, rateLimit } from './security';
 import { LANGUAGES, ROLES, orderPlayers, type Filters, type Player } from './model';
 import { catalog } from './providers';
+import { isAdmin } from './config';
 
 export const filterSchema = z.object({ minRank: z.number().int().min(0).max(71).nullable(), maxRank: z.number().int().min(0).max(71).nullable(), roles: z.array(z.enum(ROLES)).max(5) }).strict().refine(f => f.minRank === null || f.maxRank === null || f.minRank <= f.maxRank);
 export function communityStats() {
@@ -34,11 +35,12 @@ export function publicPlayer(row: Row): Player {
 export function getMe(userId: string) {
   const row = playerRows().where(eq(users.id, userId)).get();
   if (!row) throw new AppError('unauthorized', 401);
-  return { ...publicPlayer(row), locale: row.user.locale, paused: row.user.paused, notifications: row.user.notifications,
+  if (row.user.banned) throw new AppError('accountBanned', 403);
+  return { ...publicPlayer(row), isAdmin: isAdmin(row.user.steamId), locale: row.user.locale, paused: row.user.paused, notifications: row.user.notifications,
     complete: row.profile.complete, discord: row.discord ? { username: row.discord.username, ready: row.discord.ready, error: row.discord.error } : null,
     ready: row.profile.complete && !row.user.paused,
     filters: db().select().from(preferences).where(eq(preferences.userId, userId)).get() || { minRank: null, maxRank: null, roles: [] },
-    blocks: db().select({ id: profiles.userId, name: profiles.name }).from(blocks).innerJoin(profiles, eq(profiles.userId, blocks.recipientId)).where(eq(blocks.senderId, userId)).all()
+    blocks: db().select({ id: profiles.userId, name: profiles.name }).from(blocks).innerJoin(profiles, eq(profiles.userId, blocks.recipientId)).innerJoin(users, eq(users.id, profiles.userId)).where(and(eq(blocks.senderId, userId), eq(users.banned, false))).all()
   };
 }
 export function requireReady(userId: string) { if (!getMe(userId).ready) throw new AppError('setupRequired', 403); }
@@ -54,7 +56,7 @@ export function discovery(userId: string) {
     ...db().select({ id: blocks.recipientId }).from(blocks).where(eq(blocks.senderId, userId)).all(),
     ...db().select({ id: blocks.senderId }).from(blocks).where(eq(blocks.recipientId, userId)).all()
   ].map(r => r.id));
-  const players = playerRows().where(and(ne(users.id, userId), eq(users.paused, false), eq(profiles.complete, true))).all()
+  const players = playerRows().where(and(ne(users.id, userId), eq(users.paused, false), eq(users.banned, false), eq(profiles.complete, true))).all()
     .filter(r => !omitted.has(r.user.id)).map(publicPlayer);
   const sorted = orderPlayers(me, players, me.filters);
   return { players: sorted.slice(0, 30), total: sorted.length };
@@ -74,7 +76,7 @@ export function act(userId: string, target: string, action: 'like' | 'pass') {
     requireReady(userId);
     if (userId === target || isBlocked(userId, target)) throw new AppError('notFound', 404);
     const recipient = playerRows().where(eq(users.id, target)).get();
-    if (!recipient || !recipient.profile.complete || recipient.user.paused) throw new AppError('notFound', 404);
+    if (!recipient || recipient.user.banned || !recipient.profile.complete || recipient.user.paused) throw new AppError('notFound', 404);
     if (action === 'pass') {
       tx.insert(passes).values({ senderId: userId, recipientId: target }).onConflictDoNothing().run();
       return { liked: false };
@@ -92,14 +94,14 @@ export function receivedLikes(userId: string) {
   return db().select().from(likes).where(eq(likes.recipientId, userId)).all().sort((a, b) => b.createdAt - a.createdAt)
     .filter(l => !isBlocked(userId, l.senderId)).map(l => {
       const row = playerRows().where(eq(users.id, l.senderId)).get();
-      return row ? { ...publicPlayer(row), likedAt: l.createdAt } : null;
+      return row && !row.user.banned ? { ...publicPlayer(row), likedAt: l.createdAt } : null;
     }).filter(Boolean);
 }
 export function profileDetail(viewer: string, target: string) {
   if (isBlocked(viewer, target)) throw new AppError('notFound', 404);
   const row = playerRows().where(eq(users.id, target)).get();
   const incoming = db().select().from(likes).where(and(eq(likes.senderId, target), eq(likes.recipientId, viewer))).get();
-  if (!row || (!incoming && (!row.profile.complete || row.user.paused))) throw new AppError('notFound', 404);
+  if (!row || row.user.banned || (!incoming && (!row.profile.complete || row.user.paused))) throw new AppError('notFound', 404);
   // Contact details are disclosed to a recipient of this person's like only.
   return { ...publicPlayer(row), discordUsername: incoming ? row.discord?.username : null, discordId: incoming ? row.discord?.discordId : null, steamUrl: incoming ? `https://steamcommunity.com/profiles/${row.user.steamId}` : null };
 }

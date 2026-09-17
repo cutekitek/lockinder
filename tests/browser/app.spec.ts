@@ -43,7 +43,7 @@ test('profile editing, role filtering, mobile Russian deck and paused state', as
   await page.goto('/profile');
   await page.getByLabel('Display name').fill('New Captain');
   await page.getByRole('button', { name: 'Save profile' }).click();
-  await expect(page.getByRole('status')).toContainText('Saved');
+  await expect(page.getByRole('status').filter({ hasText: 'Saved' })).toBeVisible();
   await page.goto('/');
   await page.locator('.role-options').getByLabel('Carry', { exact: true }).check();
   await page.getByRole('button', { name: 'Apply filters' }).click();
@@ -79,6 +79,7 @@ test('rank slider supports dragging, keyboard bounds, persistence and reset', as
   await page.getByRole('button', { name: 'Apply filters' }).click();
   await page.reload();
   await expect(min).toHaveValue('1'); await expect(max).toHaveValue('64');
+  await expect(min).toBeEnabled();
   await min.focus(); await page.keyboard.press('End');
   await expect(min).toHaveValue('64');
   await max.focus(); await page.keyboard.press('Home');

@@ -16,4 +16,7 @@ export function required(name: string) {
   return value;
 }
 export const DEADLOCK = 'https://api.deadlock-api.com';
+export function isAdmin(steamId: string) {
+  return (process.env.ADMIN_STEAM_IDS || '').split(/[\s,]+/).filter(value => /^\d{17}$/.test(value)).includes(steamId);
+}
 export const DISCORD = 'https://discord.com/api/v10';

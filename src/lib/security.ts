@@ -27,12 +27,18 @@ export function authenticate(request: Request) {
   const session = db().select({ user: users }).from(sessions).innerJoin(users, eq(users.id, sessions.userId))
     .where(and(eq(sessions.hash, hash(cookieValue(request, 'session'))), gt(sessions.expiresAt, Date.now()))).get();
   if (!session) throw new AppError('unauthorized', 401);
+  if (session.user.banned) throw new AppError('accountBanned', 403);
   return session.user;
 }
 export function newSession(userId: string) {
   const value = token();
-  db().delete(sessions).where(lt(sessions.expiresAt, Date.now())).run();
-  db().insert(sessions).values({ hash: hash(value), userId, expiresAt: Date.now() + 30 * 86400_000 }).run();
+  db().transaction(tx => {
+    const user = tx.select().from(users).where(eq(users.id, userId)).get();
+    if (!user) throw new AppError('unauthorized', 401);
+    if (user.banned) throw new AppError('accountBanned', 403);
+    tx.delete(sessions).where(lt(sessions.expiresAt, Date.now())).run();
+    tx.insert(sessions).values({ hash: hash(value), userId, expiresAt: Date.now() + 30 * 86400_000 }).run();
+  }, { behavior: 'immediate' });
   return value;
 }
 export function newState(provider: string, userId: string | null = null) {

@@ -174,6 +174,14 @@ Backend tests use an isolated temporary database and mocked provider responses. 
 
 Provider integrations are mocked in automated tests. Before launch, use two accounts you control to finish onboarding, send one like, confirm its real bot DM and contact link, then disable DMs and confirm that the like persists with a repair prompt.
 
+### Administration and player reports
+
+Set `ADMIN_STEAM_IDS` to a comma-separated list of administrator SteamID64 values, then restart the web service. Administrators see an **Admin panel** navigation link at `/admin`; all admin API requests independently check the authenticated Steam account against this server-side allowlist. An empty list disables admin access. For this installation, the requested administrator is `76561198389790471`.
+
+Players can report another player from discovery or their profile card. Reports (up to 1500 characters, two submissions per minute per author) are persisted in SQLite and reviewed in the admin panel; they do not depend on Discord delivery. The panel lists all accounts, searches names/SteamIDs/Discord usernames, and paginates users and report details. A separate reported-users tab shows report counts and authors, text and dates.
+
+Admins can ban and unban users with confirmation. Banning hides the profile from discovery, received likes, blocked-user lists and direct profile URLs, revokes sessions, prevents Steam sign-in and cancels queued notifications involving the account. The account and reports remain visible to admins. Admin accounts cannot be banned. Unbanning permits a fresh sign-in; old sessions and cancelled notifications are not restored. Migrations apply automatically on first database connection.
+
 ### Complaint recipient
 
 Set `DISCORD_ADMIN_USER_ID` in the server `.env` to the administrator’s numeric Discord user ID. The existing `DISCORD_BOT_TOKEN` is used to send direct messages. The administrator must allow DMs from the bot (and share a server with it). Restart the web service after changing the configuration.

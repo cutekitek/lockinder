@@ -8,6 +8,7 @@ import { origin, required } from '@/lib/config';
 import { logError, withRequestLog } from '@/lib/logger';
 import { catalog, DiscordError, discordIdentity, refreshRank, sendDM, steamLoginUrl, steamSummary, verifyMembership, verifySteam } from '@/lib/providers';
 import { communityStats, act, blockUser, cancelJobs, disconnectDiscord, discovery, getMe, profileDetail, receivedLikes, saveFilters, saveProfile } from '@/lib/service';
+import { adminReports, adminUsers, reportPlayer, requireAdmin, setUserBan } from '@/lib/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -62,6 +63,7 @@ async function get(request: Request, context: Context) {
       const summary = await steamSummary(steamId);
       const userId = db().transaction(tx => {
         const existing = tx.select().from(users).where(eq(users.steamId, steamId)).get();
+        if (existing?.banned) throw new AppError('accountBanned', 403);
         if (existing) { if (summary.avatar) tx.update(users).set({ avatar: summary.avatar }).where(eq(users.id, existing.id)).run(); return existing.id; }
         const userId = id();
         tx.insert(users).values({ id: userId, steamId, avatar: summary.avatar, locale: request.headers.get('accept-language')?.startsWith('ru') ? 'ru' : 'en', createdAt: Date.now() }).run();
@@ -105,6 +107,14 @@ async function get(request: Request, context: Context) {
       return json({ ...getMe(user.id), discordInvite: process.env.DISCORD_INVITE_URL || null,
         discordConfigured: !!(process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET && process.env.DISCORD_BOT_TOKEN && process.env.DISCORD_GUILD_ID) });
     }
+    if (path.startsWith('admin/')) {
+      requireAdmin(user);
+      const query = Object.fromEntries(url.searchParams);
+      if (path === 'admin/users') return json(adminUsers(query));
+      const reportsPath = /^admin\/users\/([a-f0-9]{24})\/reports$/.exec(path);
+      if (reportsPath) return json(adminReports(reportsPath[1], query));
+      throw new AppError('notFound', 404);
+    }
     if (path === 'discovery') return json(discovery(user.id));
     if (path === 'likes') return json({ players: receivedLikes(user.id) });
     if (path.startsWith('players/')) return json(profileDetail(user.id, path.split('/')[1]));
@@ -128,6 +138,11 @@ async function post(request: Request, context: Context) {
       const response = json({ ok: true }); response.headers.append('Set-Cookie', cookie('session', '', 0)); return response;
     }
     if (path === 'profile') { await saveProfile(user.id, await body(request)); return json({ ok: true }); }
+    if (path === 'reports') return json(reportPlayer(user.id, await body(request)));
+    if (path === 'admin/ban') {
+      requireAdmin(user);
+      return json(setUserBan(user, await body(request)));
+    }
     if (path === 'complaint') {
       const { text } = z.object({ text: z.string().trim().min(1).max(1500) }).strict().parse(await body(request));
       const recipient = process.env.DISCORD_ADMIN_USER_ID?.trim();

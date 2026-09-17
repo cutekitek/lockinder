@@ -443,4 +443,52 @@ footer { margin-top:0; padding:13px 0; justify-content:flex-end; font-size:11px;
 .complaint-heading h2 { margin:0; }
 .complaint-heading button { flex-shrink:0; padding:5px; }
 .complaint-actions { justify-content:flex-end; }
+.player-moderation { grid-column:1/-1; display:flex; border-top:1px solid var(--line); }
+.player-moderation .block-button { flex:1; border-top:0; margin:0; }
+.player-moderation .block-button+.block-button { border-left:1px solid var(--line); }
+.admin-panel { min-width:0; }
+.admin-tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:20px; }
+.admin-tabs [aria-pressed="true"] { border-color:var(--accent); color:var(--accent); background:#352c21; }
+.admin-search { margin-bottom:20px; max-width:650px; }
+.admin-search label { display:block; font-size:12px; margin-bottom:8px; color:var(--muted); }
+.admin-search>div { display:flex; gap:10px; }
+.admin-search input { min-width:0; flex:1; }
+.admin-users { padding:0; overflow:hidden; }
+.admin-table-scroll { overflow-x:auto; }
+.admin-users table { width:100%; border-collapse:collapse; text-align:left; font-size:12px; }
+.admin-users th { color:var(--muted); font-weight:500; background:#25211c; white-space:nowrap; }
+.admin-users th,.admin-users td { padding:15px; border-bottom:1px solid var(--line); vertical-align:top; }
+.admin-users td:first-child { min-width:190px; max-width:260px; overflow-wrap:anywhere; }
+.admin-users td strong { display:block; font-size:14px; margin-bottom:7px; }
+.admin-users td a,.admin-report-meta a { display:inline-flex; align-items:center; gap:5px; color:var(--accent); }
+.admin-users td small { display:block; color:var(--muted); margin-top:6px; }
+.admin-users td .secondary { padding:8px 11px; white-space:nowrap; }
+.admin-status { display:inline-block; padding:4px 7px; border:1px solid var(--line); border-radius:4px; font-size:11px; white-space:nowrap; }
+.admin-status.is-banned { color:#f0aaa0; border-color:#80473e; background:#36221f; }
+.admin-pagination { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:15px; }
+.admin-pagination>span { font-size:12px; color:var(--muted); }
+.admin-pagination>div { display:flex; gap:8px; }
+.admin-pagination button { padding:8px 12px; }
+.admin-empty { padding:24px 15px; color:var(--muted); }
+.admin-section-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:15px; }
+.admin-section-heading h2 { overflow-wrap:anywhere; }
+.admin-section-heading button { padding:4px; }
+.admin-reports { margin-top:20px; }
+.admin-report-list article { padding:18px 0; border-bottom:1px solid var(--line); }
+.admin-report-meta { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; font-size:12px; color:var(--muted); }
+.admin-report-list p { white-space:pre-wrap; overflow-wrap:anywhere; margin-top:12px; font-size:14px; line-height:1.6; }
+.admin-feedback { color:var(--accent); margin-bottom:14px; }
+@media(max-width:720px) {
+  .sidebar nav { flex-wrap:wrap; }
+  .admin-tabs .secondary { flex:1; }
+  .admin-pagination { padding:12px; }
+  .admin-pagination>div { width:100%; justify-content:space-between; }
+  .admin-search>div { gap:6px; }
+  .admin-users table,.admin-users tbody { display:block; }
+  .admin-users thead { display:none; }
+  .admin-users tr { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); padding:8px; border-bottom:1px solid var(--line); }
+  .admin-users td { padding:10px; border:0; min-width:0; }
+  .admin-users td:first-child { grid-column:1/-1; max-width:none; }
+  .admin-users td[data-label]::before { content:attr(data-label); display:block; margin-bottom:8px; color:var(--muted); font-size:11px; }
+}
 @media(max-width:720px) { .sidebar nav .complaint-nav { flex:1; flex-direction:column; padding:7px 4px; gap:4px; font-size:10px; } }
