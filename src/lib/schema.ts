@@ -62,6 +62,8 @@ export const jobs = sqliteTable('notification_jobs', {
   error: text('error'), messageId: text('message_id')
 }, t => [index('jobs_due').on(t.status, t.availableAt)]);
 export const limits = sqliteTable('rate_limits', { key: text('key').primaryKey(), count: integer('count').notNull(), resetAt: integer('reset_at').notNull() });
+export const appSettings = sqliteTable('app_settings', { key: text('key').primaryKey(), value: text('value').notNull(), updatedAt: integer('updated_at').notNull() });
+export const settingsRevision = sqliteTable('settings_revision', { id: integer('id').primaryKey(), revision: integer('revision').notNull().default(0) });
 export const playerReports = sqliteTable('player_reports', {
   id: text('id').primaryKey(),
   reporterId: text('reporter_id').notNull().references(() => users.id, { onDelete: 'cascade' }),

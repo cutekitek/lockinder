@@ -1,11 +1,15 @@
 import { afterAll as after, afterEach, beforeEach, test } from 'bun:test';
+import { Database } from 'bun:sqlite';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { backupDatabase, connection, db, openDatabase } from '../src/lib/db';
-import { assets, authStates, discord, jobs, likes, limits, playerReports, profiles, ranks, sessions, users } from '../src/lib/schema';
+import { appSettings, assets, authStates, discord, jobs, likes, limits, playerReports, profiles, ranks, sessions, settingsRevision, users } from '../src/lib/schema';
+import { setting, origin } from '../src/lib/config';
+import { adminSettings, saveAdminSettings } from '../src/lib/settings';
+import { SETTING_KEYS, SECRET_SETTINGS, SETTINGS_DEFAULTS, type SettingKey } from '../src/lib/settings-definition';
 import { adminReports, adminUsers, reportPlayer, setUserBan } from '../src/lib/admin';
 import { act, blockUser, disconnectDiscord, discovery, getMe, profileDetail, receivedLikes, saveFilters, saveProfile } from '../src/lib/service';
 import { authenticate, consumeState, csrf, hash, id, newSession, newState, rateLimit, RateLimitError } from '../src/lib/security';
@@ -21,7 +25,9 @@ process.env.APP_URL = 'http://localhost:3000';
 process.env.DISCORD_BOT_TOKEN = 'test-only';
 process.env.DISCORD_GUILD_ID = '123456789012345678';
 const originalFetch = global.fetch;
-const originalAdminIds = process.env.ADMIN_STEAM_IDS;
+function setTestSetting(key: SettingKey, value: string) {
+  db().insert(appSettings).values({ key, value, updatedAt: Date.now() }).onConflictDoUpdate({ target: appSettings.key, set: { value } }).run();
+}
 let sequence = 0;
 function fixture(options: { language?: string; tier?: number | null; division?: number | null; ready?: boolean; paused?: boolean; complete?: boolean } = {}) {
   const userId = id(); const n = ++sequence;
@@ -47,12 +53,14 @@ function mockDiscord(status = 200) {
   return sent;
 }
 beforeEach(() => {
-  process.env.ADMIN_STEAM_IDS = '';
   connection().sqlite.exec('DELETE FROM users; DELETE FROM nonces; DELETE FROM rate_limits; DELETE FROM asset_cache; DELETE FROM auth_states;');
+  for (const key of SETTING_KEYS) setTestSetting(key, SETTINGS_DEFAULTS[key]);
+  setTestSetting('DISCORD_BOT_TOKEN', 'test-only'); setTestSetting('DISCORD_GUILD_ID', '123456789012345678');
+  db().update(settingsRevision).set({ revision: 0 }).run();
   global.fetch = (async () => { throw new Error('Unexpected network request in test'); }) as unknown as typeof fetch;
   db().insert(assets).values({ key: 'en', json: JSON.stringify({ ...enCatalog, stale: false }), fetchedAt: Date.now() }).run();
 });
-afterEach(() => { global.fetch = originalFetch; if (originalAdminIds === undefined) delete process.env.ADMIN_STEAM_IDS; else process.env.ADMIN_STEAM_IDS = originalAdminIds; });
+afterEach(() => { global.fetch = originalFetch; });
 after(() => { connection().sqlite.close(true); rmSync(directory, { recursive: true, force: true }); });
 
 test('Bun SQLite backups include committed WAL data and refuse overwrite', () => {
@@ -127,7 +135,7 @@ test('database unique constraint rejects independent duplicate inserts', () => {
   const senderId = fixture(), recipientId = fixture(); act(senderId, recipientId, 'like');
   const second = openDatabase(process.env.DATABASE_PATH);
   assert.throws(() => second.sqlite.prepare('INSERT INTO likes VALUES (?, ?, ?, ?)').run(id(), senderId, recipientId, Date.now()));
-  second.sqlite.close();
+  second.sqlite.close(true);
 });
 test('like and outbox insertion roll back together', () => {
   const sender = fixture(), recipient = fixture();
@@ -228,7 +236,7 @@ test('Discord callback cannot link an account already owned by someone else', as
   const a = fixture(), b = fixture();
   const existing = db().select().from(discord).where(eq(discord.userId, a)).get()!;
   const state = newState('discord', b);
-  process.env.DISCORD_CLIENT_ID = 'test'; process.env.DISCORD_CLIENT_SECRET = 'test';
+  setTestSetting('DISCORD_CLIENT_ID', 'test'); setTestSetting('DISCORD_CLIENT_SECRET', 'test');
   global.fetch = (async (input: Parameters<typeof fetch>[0]) => String(input).endsWith('/oauth2/token') ? Response.json({ access_token: 'test' }) : Response.json({ id: existing.discordId, username: 'test' })) as unknown as typeof fetch;
   const response = await GET(new Request(`http://localhost:3000/api/auth/discord/callback?state=${state}&code=test`, { headers: { cookie: `session=${newSession(b)}; discord_state=${state}` } }), context('auth/discord/callback'));
   assert.match(response.headers.get('location')!, /discordInUse/);
@@ -279,7 +287,7 @@ test('rate limits survive independent database connections and reset windows', (
   rateLimit('test', 1, 10_000); assert.throws(() => rateLimit('test', 1, 10_000));
   const other = openDatabase(process.env.DATABASE_PATH);
   assert.equal((other.sqlite.prepare('SELECT count FROM rate_limits WHERE key = ?').get('test') as { count: number }).count, 1);
-  other.sqlite.close();
+  other.sqlite.close(true);
 });
 test('Discord onboarding test checks membership and DM permission before becoming ready', async () => {
   const user = fixture({ ready: false }); const session = newSession(user);
@@ -305,15 +313,15 @@ test('Discord quota persists, limits concurrent sends per user and resets after 
     const row = other.sqlite.prepare('SELECT count, reset_at FROM rate_limits WHERE key = ?').get(`discordMessage:${user}`) as { count: number; reset_at: number };
     assert.equal(row.count, 2);
     assert.ok(row.reset_at >= before + 60_000 && row.reset_at <= Date.now() + 60_000);
-  } finally { other.sqlite.close(); }
+  } finally { other.sqlite.close(true); }
   await sendDM(another, '123456789012345678', 'different user');
   db().update(limits).set({ resetAt: Date.now() - 1 }).where(eq(limits.key, `discordMessage:${user}`)).run();
   await sendDM(user, '123456789012345678', 'new window');
   assert.equal(sent.length, 4);
 });
 test('complaints, tests and queued notifications share a user quota without breaking Discord', async () => {
-  const previousAdmin = process.env.DISCORD_ADMIN_USER_ID;
-  process.env.DISCORD_ADMIN_USER_ID = '987654321098765432';
+  const previousAdmin = setting('DISCORD_ADMIN_USER_ID');
+  setTestSetting('DISCORD_ADMIN_USER_ID', '987654321098765432');
   try {
     const user = fixture(), sender = fixture(), otherRecipient = fixture();
     const session = newSession(user), secondSession = newSession(user);
@@ -353,8 +361,7 @@ test('complaints, tests and queued notifications share a user quota without brea
     assert.equal(sent.length, 4);
     assert.equal(sent[3].nonce, queued.likeId);
   } finally {
-    if (previousAdmin === undefined) delete process.env.DISCORD_ADMIN_USER_ID;
-    else process.env.DISCORD_ADMIN_USER_ID = previousAdmin;
+    setTestSetting('DISCORD_ADMIN_USER_ID', previousAdmin);
   }
 });
 test('missing server membership fails the requested Discord test', async () => {
@@ -401,7 +408,7 @@ test('transient failures use bounded retries and preserve received likes on exha
 test('SQLite data and applied migration history survive reopen', () => {
   const user = fixture(); const another = openDatabase(process.env.DATABASE_PATH);
   assert.ok(another.sqlite.prepare('SELECT id FROM users WHERE id = ?').get(user));
-  assert.deepEqual(another.sqlite.prepare('SELECT name FROM _migrations ORDER BY name').all(), [{ name: '0001_initial.sql' }, { name: '0002_player_reports.sql' }, { name: '0003_user_bans.sql' }]);
+  assert.deepEqual(another.sqlite.prepare('SELECT name FROM _migrations ORDER BY name').all(), [{ name: '0001_initial.sql' }, { name: '0002_player_reports.sql' }, { name: '0003_user_bans.sql' }, { name: '0004_app_settings.sql' }]);
   assert.deepEqual(another.sqlite.query('PRAGMA journal_mode').get(), { journal_mode: 'wal' }); another.sqlite.close(true);
 });
 
@@ -414,7 +421,7 @@ test('complete controlled flow: Steam callback, profile, Discord callback/test, 
   // Use an account not already present in this isolated test database.
   callback.searchParams.set('openid.claimed_id', 'https://steamcommunity.com/openid/id/76561197970265728');
   callback.searchParams.set('openid.identity', 'https://steamcommunity.com/openid/id/76561197970265728');
-  process.env.DISCORD_CLIENT_ID = 'test'; process.env.DISCORD_CLIENT_SECRET = 'test';
+  setTestSetting('DISCORD_CLIENT_ID', 'test'); setTestSetting('DISCORD_CLIENT_SECRET', 'test');
   global.fetch = (async (input: Parameters<typeof fetch>[0]) => String(input).includes('steamcommunity.com') ? new Response('is_valid:true\n') : Response.json({ rank: 5, subrank: 3, badge: 53 })) as unknown as typeof fetch;
   const login = await GET(new Request(callback, { headers: { cookie: `steam_state=${state}` } }), context('auth/steam/callback'));
   const session = /session=([a-f0-9]{64})/.exec(login.headers.get('set-cookie') || '')?.[1];
@@ -441,8 +448,8 @@ test('complete controlled flow: Steam callback, profile, Discord callback/test, 
 });
 
 test('complaints validate input, deliver to the configured administrator and limit requests', async () => {
-  const previous = process.env.DISCORD_ADMIN_USER_ID;
-  process.env.DISCORD_ADMIN_USER_ID = '987654321098765432';
+  const previous = setting('DISCORD_ADMIN_USER_ID');
+  setTestSetting('DISCORD_ADMIN_USER_ID', '987654321098765432');
   try {
     const user = fixture({ complete: false });
     const session = newSession(user);
@@ -462,23 +469,22 @@ test('complaints validate input, deliver to the configured administrator and lim
     assert.deepEqual(deliveries[1].body.allowed_mentions, { parse: [] });
     assert.equal((await POST(request('complaint', session, { text: 'test' }), context('complaint'))).status, 429);
     assert.equal(deliveries.length, 4);
-    delete process.env.DISCORD_ADMIN_USER_ID;
+    setTestSetting('DISCORD_ADMIN_USER_ID', '');
     assert.equal((await POST(request('complaint', session, { text: 'test' }), context('complaint'))).status, 503);
-    process.env.DISCORD_ADMIN_USER_ID = '987654321098765432';
+    setTestSetting('DISCORD_ADMIN_USER_ID', '987654321098765432');
     const anotherSession = newSession(fixture());
     mockDiscord(403);
     const failed = await POST(request('complaint', anotherSession, { text: 'test' }), context('complaint'));
     assert.equal(failed.status, 503);
     assert.equal((await failed.json()).error, 'complaintUnavailable');
   } finally {
-    if (previous === undefined) delete process.env.DISCORD_ADMIN_USER_ID;
-    else process.env.DISCORD_ADMIN_USER_ID = previous;
+    setTestSetting('DISCORD_ADMIN_USER_ID', previous);
   }
 });
 
 function adminFixture() {
   const user = db().select().from(users).where(eq(users.id, fixture())).get()!;
-  process.env.ADMIN_STEAM_IDS = user.steamId;
+  setTestSetting('ADMIN_STEAM_IDS', user.steamId);
   return { user, session: newSession(user.id) };
 }
 function getRequest(path: string, session: string) {
@@ -500,7 +506,7 @@ test('player reports validate targets, persist without Discord, throttle authors
   assert.equal('reports' in profileDetail(reporter, target), false);
   const reopened = openDatabase(process.env.DATABASE_PATH);
   assert.equal((reopened.sqlite.prepare('SELECT count(*) AS n FROM player_reports').get() as { n: number }).n, 2);
-  reopened.sqlite.close();
+  reopened.sqlite.close(true);
 });
 
 test('admin APIs enforce allowlist, validate pagination and search Unicode names and identifiers', async () => {
@@ -527,7 +533,7 @@ test('admin APIs enforce allowlist, validate pagination and search Unicode names
   assert.equal(details.total, 2); assert.equal(details.reports.length, 1); assert.equal(details.totalPages, 2);
   assert.notEqual(adminReports(first, { pageSize: 1, page: 2 }).reports[0].id, details.reports[0].id);
   for (const query of ['page=0', 'page=1.5', 'pageSize=101', 'pageSize=-1', 'scope=invalid', 'q=' + 'a'.repeat(101)]) assert.equal((await getRequest(`admin/users?${query}`, session)).status, 400);
-  process.env.ADMIN_STEAM_IDS = '';
+  setTestSetting('ADMIN_STEAM_IDS', '');
   assert.equal((await getRequest('admin/users', session)).status, 403);
 });
 
@@ -578,12 +584,100 @@ test('banned Steam accounts receive an explicit login error and no new session',
   assert.equal(db().select().from(sessions).where(eq(sessions.userId, target)).all().length, 0);
 });
 
+test('settings migration imports the environment once into an existing database and preserves later changes', () => {
+  const previous = Object.fromEntries(SETTING_KEYS.map(key => [key, process.env[key]]));
+  const path = join(directory, 'settings-upgrade.db');
+  const legacy = new Database(path);
+  legacy.exec('CREATE TABLE _migrations (name TEXT PRIMARY KEY NOT NULL)');
+  for (const name of ['0001_initial.sql', '0002_player_reports.sql', '0003_user_bans.sql']) {
+    legacy.exec(readFileSync(join('migrations', name), 'utf8'));
+    legacy.prepare('INSERT INTO _migrations VALUES (?)').run(name);
+  }
+  legacy.prepare('INSERT INTO users (id, steam_id, created_at) VALUES (?, ?, ?)').run('legacy', '76561198389790471', Date.now());
+  legacy.close(true);
+  try {
+    const imported = { APP_URL: 'https://example.test', ADMIN_STEAM_IDS: '76561198389790471', STEAM_API_KEY: 'steam-import-secret', DEADLOCK_API_KEY: 'deadlock-import-secret', DISCORD_CLIENT_ID: '123456789012345678', DISCORD_CLIENT_SECRET: 'client-import-secret', DISCORD_BOT_TOKEN: 'bot-import-secret', DISCORD_ADMIN_USER_ID: '223456789012345678', DISCORD_GUILD_ID: '323456789012345678', DISCORD_INVITE_URL: 'https://discord.gg/imported' };
+    Object.assign(process.env, imported);
+    const upgraded = openDatabase(path);
+    assert.deepEqual(Object.fromEntries(upgraded.db.select().from(appSettings).all().map(row => [row.key, row.value])), imported);
+    assert.equal(upgraded.db.select().from(users).get()?.id, 'legacy');
+    upgraded.db.update(appSettings).set({ value: 'edited-in-admin' }).where(eq(appSettings.key, 'DISCORD_BOT_TOKEN')).run();
+    upgraded.db.update(appSettings).set({ value: '' }).where(eq(appSettings.key, 'DISCORD_INVITE_URL')).run();
+    upgraded.sqlite.close(true);
+    process.env.DISCORD_BOT_TOKEN = 'stale-environment';
+    process.env.DISCORD_INVITE_URL = 'https://discord.gg/stale';
+    const reopened = openDatabase(path);
+    assert.equal(reopened.db.select().from(appSettings).where(eq(appSettings.key, 'DISCORD_BOT_TOKEN')).get()?.value, 'edited-in-admin');
+    assert.equal(reopened.db.select().from(appSettings).where(eq(appSettings.key, 'DISCORD_INVITE_URL')).get()?.value, '');
+    assert.equal(reopened.db.select().from(appSettings).all().length, SETTING_KEYS.length);
+    reopened.sqlite.close(true);
+  } finally {
+    for (const key of SETTING_KEYS) { if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key]; }
+  }
+});
+
+test('settings API returns saved secrets only to admins, validates updates and preserves access', async () => {
+  const { user: admin, session } = adminFixture();
+  const ordinary = newSession(fixture());
+  for (const key of SECRET_SETTINGS) setTestSetting(key, `private-${key}`);
+  assert.equal((await getRequest('admin/settings', '')).status, 401);
+  const forbidden = await getRequest('admin/settings', ordinary);
+  assert.equal(forbidden.status, 403);
+  assert.ok(!(await forbidden.text()).includes('private-'));
+  assert.equal((await POST(request('admin/settings', ordinary, { revision: 0, values: { DISCORD_BOT_TOKEN: 'takeover' } }), context('admin/settings'))).status, 403);
+  const settingsResponse = await getRequest('admin/settings', session);
+  assert.equal(settingsResponse.headers.get('cache-control'), 'no-store');
+  const snapshot = await settingsResponse.json();
+  for (const key of SECRET_SETTINGS) {
+    assert.equal(snapshot.values[key], `private-${key}`); assert.equal(snapshot.configured[key], true);
+  }
+  const updates = { revision: snapshot.revision, values: { DISCORD_INVITE_URL: 'https://discord.gg/new', DISCORD_BOT_TOKEN: 'replacement-private-token' } };
+  const rejected = new Request('http://localhost:3000/api/admin/settings', { method: 'POST', headers: { cookie: `session=${session}`, origin: 'https://evil.example', 'content-type': 'application/json' }, body: JSON.stringify(updates) });
+  assert.equal((await POST(rejected, context('admin/settings'))).status, 403);
+  const response = await POST(request('admin/settings', session, updates), context('admin/settings'));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).values.DISCORD_BOT_TOKEN, 'replacement-private-token');
+  assert.equal(setting('DISCORD_BOT_TOKEN'), 'replacement-private-token');
+  assert.equal(setting('STEAM_API_KEY'), 'private-STEAM_API_KEY');
+  assert.equal((await POST(request('admin/settings', session, updates), context('admin/settings'))).status, 409);
+  for (const values of [{ ADMIN_STEAM_IDS: '' }, { ADMIN_STEAM_IDS: '123' }, { ADMIN_STEAM_IDS: '76561197960269999' }, { APP_URL: 'https://example.test/path' }, { APP_URL: 'javascript:alert(1)' }, { APP_URL: 'https://user:password@example.test' }, { DISCORD_CLIENT_ID: 'bad' }, { DISCORD_INVITE_URL: 'https://evil.example/discord.gg' }, { DATABASE_PATH: '/tmp/other.db' }]) {
+    assert.equal((await POST(request('admin/settings', session, { revision: 1, values }), context('admin/settings'))).status, 400);
+  }
+  assert.equal(adminSettings(admin).revision, 1);
+  assert.equal(setting('ADMIN_STEAM_IDS'), admin.steamId);
+  assert.equal(origin(), 'http://localhost:3000');
+  saveAdminSettings(admin, { revision: 1, values: { DISCORD_BOT_TOKEN: '' } });
+  assert.equal(setting('DISCORD_BOT_TOKEN'), '');
+  assert.equal(adminSettings(admin).configured.DISCORD_BOT_TOKEN, false);
+  assert.equal(adminSettings(admin).values.DISCORD_BOT_TOKEN, '');
+});
+
+test('settings updates are visible to independent connections, providers and the worker without restart', async () => {
+  const { user: admin } = adminFixture();
+  saveAdminSettings(admin, { revision: 0, values: { DISCORD_BOT_TOKEN: 'live-bot-token', DISCORD_GUILD_ID: '987654321098765432', APP_URL: 'https://updated.example.test/' } });
+  assert.equal(origin(), 'https://updated.example.test');
+  const other = openDatabase(process.env.DATABASE_PATH);
+  assert.equal(other.db.select().from(appSettings).where(eq(appSettings.key, 'DISCORD_BOT_TOKEN')).get()?.value, 'live-bot-token');
+  other.db.update(appSettings).set({ value: 'external-token' }).where(eq(appSettings.key, 'DISCORD_BOT_TOKEN')).run();
+  other.sqlite.close(true);
+  const sender = fixture(), recipient = fixture();
+  const sent = mockDiscord();
+  const mock = global.fetch;
+  global.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    assert.equal(new Headers(init?.headers).get('authorization'), 'Bot external-token');
+    if (String(input).includes('/members/')) assert.ok(String(input).includes('/guilds/987654321098765432/'));
+    return mock(input, init);
+  }) as typeof fetch;
+  act(sender, recipient, 'like'); await processJob();
+  assert.equal(sent.length, 1); assert.ok(sent[0].content.includes('https://updated.example.test/players/'));
+});
+
 test('API error logs correlate Discord failures without exposing message text or credentials', async () => {
-  const previousAdmin = process.env.DISCORD_ADMIN_USER_ID;
+  const previousAdmin = setting('DISCORD_ADMIN_USER_ID');
   const originalError = console.error;
   const logs: string[] = [];
   console.error = (...args: unknown[]) => { logs.push(args.join(' ')); };
-  process.env.DISCORD_ADMIN_USER_ID = '987654321098765432';
+  setTestSetting('DISCORD_ADMIN_USER_ID', '987654321098765432');
   try {
     const session = newSession(fixture());
     mockDiscord(403);
@@ -607,7 +701,6 @@ test('API error logs correlate Discord failures without exposing message text or
     assert.ok(!logs.join('').includes('private-body'));
   } finally {
     console.error = originalError;
-    if (previousAdmin === undefined) delete process.env.DISCORD_ADMIN_USER_ID;
-    else process.env.DISCORD_ADMIN_USER_ID = previousAdmin;
+    setTestSetting('DISCORD_ADMIN_USER_ID', previousAdmin);
   }
 });

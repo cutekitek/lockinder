@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/bun-sqlite';
 import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import * as schema from './schema';
+import { SETTING_KEYS, SETTINGS_DEFAULTS } from './settings-definition';
 
 export function openDatabase(path = process.env.DATABASE_PATH || './data/lockinder.db') {
   if (path !== ':memory:') mkdirSync(dirname(resolve(path)), { recursive: true });
@@ -13,6 +14,11 @@ export function openDatabase(path = process.env.DATABASE_PATH || './data/lockind
     for (const name of readdirSync(resolve('migrations')).filter(n => n.endsWith('.sql')).sort()) {
       if (!sqlite.prepare('SELECT 1 FROM _migrations WHERE name = ?').get(name)) {
         sqlite.exec(readFileSync(resolve('migrations', name), 'utf8'));
+        if (name === '0004_app_settings.sql') {
+          const insert = sqlite.prepare('INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)');
+          const now = Date.now();
+          for (const key of SETTING_KEYS) insert.run(key, process.env[key]?.trim() || SETTINGS_DEFAULTS[key], now);
+        }
         sqlite.prepare('INSERT INTO _migrations VALUES (?)').run(name);
       }
     }

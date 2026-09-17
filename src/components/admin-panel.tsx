@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Ban, ExternalLink, LoaderCircle, Search, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Ban, ExternalLink, Eye, EyeOff, LoaderCircle, Search, ShieldCheck, X } from 'lucide-react';
 import { translator } from '@/lib/i18n';
 import type { Locale } from '@/lib/model';
 import type { adminReports, adminUsers } from '@/lib/admin';
+import { SECRET_SETTINGS, type SettingKey, type SettingsSnapshot } from '@/lib/settings-definition';
 
 type UsersPage = ReturnType<typeof adminUsers>;
 type ReportsPage = ReturnType<typeof adminReports>;
@@ -20,9 +21,10 @@ async function request<T>(path: string, signal?: AbortSignal, value?: unknown): 
   return result;
 }
 
-function usePage<T>(path: string, version = 0) {
+function usePage<T>(path: string | null, version = 0) {
   const [state, setState] = useState<{ data: T | null; error: string | null; loading: boolean }>({ data: null, error: null, loading: true });
   useEffect(() => {
+    if (!path) return;
     const controller = new AbortController();
     void (async () => {
       setState({ data: null, error: null, loading: true });
@@ -92,7 +94,7 @@ function BanDialog({ user, t, onClose, onSaved }: { user: AdminUser; t: T; onClo
 
 export function AdminPanel({ locale }: { locale: Locale }) {
   const t = translator(locale);
-  const [scope, setScope] = useState<'all' | 'reported'>('all');
+  const [scope, setScope] = useState<'all' | 'reported' | 'settings'>('all');
   const [draft, setDraft] = useState('');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -100,11 +102,12 @@ export function AdminPanel({ locale }: { locale: Locale }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [banTarget, setBanTarget] = useState<AdminUser | null>(null);
   const [saved, setSaved] = useState(false);
-  const { data, error, loading } = usePage<UsersPage>(`admin/users?${new URLSearchParams({ scope, q: query, page: String(page) })}`, version);
+  const { data, error, loading } = usePage<UsersPage>(scope === 'settings' ? null : `admin/users?${new URLSearchParams({ scope, q: query, page: String(page) })}`, version);
   const changePage = (next: number) => { setPage(next); setSelected(null); };
   return <div className="admin-panel">
     <div className="page-title"><h1>{t('admin')}</h1><p>{t('adminHint')}</p></div>
-    <div className="admin-tabs" role="group" aria-label={t('userLists')}>{(['all', 'reported'] as const).map(value => <button key={value} className="secondary" aria-pressed={scope === value} onClick={() => { setScope(value); changePage(1); }}>{t(value === 'all' ? 'allUsers' : 'reportedUsers')}</button>)}</div>
+    <div className="admin-tabs" role="group" aria-label={t('adminSections')}>{(['all', 'reported', 'settings'] as const).map(value => <button key={value} className="secondary" aria-pressed={scope === value} onClick={() => { setScope(value); changePage(1); }}>{t(value === 'all' ? 'allUsers' : value === 'reported' ? 'reportedUsers' : 'adminSettings')}</button>)}</div>
+    {scope === 'settings' ? <SettingsPanel t={t} /> : <>
     <form className="admin-search" onSubmit={event => { event.preventDefault(); setQuery(draft.trim()); changePage(1); }}>
       <label htmlFor="admin-search">{t('searchUsers')}</label><div><input id="admin-search" value={draft} maxLength={100} placeholder={t('searchUsersHint')} onChange={event => setDraft(event.target.value)} /><button className="primary"><Search size={16} />{t('search')}</button></div>
     </form>
@@ -127,5 +130,66 @@ export function AdminPanel({ locale }: { locale: Locale }) {
       {selected && <Reports key={selected} target={selected} locale={locale} t={t} onClose={() => setSelected(null)} />}
     </>}
     {banTarget && <BanDialog user={banTarget} t={t} onClose={() => setBanTarget(null)} onSaved={() => { setBanTarget(null); setSaved(true); setVersion(v => v + 1); }} />}
+    </>}
   </div>;
+}
+
+const settingsGroups: { title: string; keys: SettingKey[] }[] = [
+  { title: 'settingsGeneral', keys: ['APP_URL', 'ADMIN_STEAM_IDS'] },
+  { title: 'settingsSteam', keys: ['STEAM_API_KEY'] },
+  { title: 'settingsDeadlock', keys: ['DEADLOCK_API_KEY'] },
+  { title: 'settingsDiscord', keys: ['DISCORD_CLIENT_ID', 'DISCORD_CLIENT_SECRET', 'DISCORD_BOT_TOKEN', 'DISCORD_ADMIN_USER_ID', 'DISCORD_GUILD_ID', 'DISCORD_INVITE_URL'] }
+];
+
+function SettingsPanel({ t }: { t: T }) {
+  const [version, setVersion] = useState(0);
+  const [saved, setSaved] = useState(false);
+  const { data, error, loading } = usePage<SettingsSnapshot>('admin/settings', version);
+  return <section className="admin-settings" aria-label={t('adminSettings')}>
+    <h2>{t('adminSettings')}</h2><p className="muted">{t('settingsHint')}</p>
+    {saved && <p className="admin-feedback" role="status">{t('settingsSaved')}</p>}
+    {loading ? <p role="status">{t('loadingSettings')}</p> : error ? <div role="alert"><p>{t(error)}</p><button className="secondary" onClick={() => setVersion(v => v + 1)}>{t('retry')}</button></div> : data && <SettingsForm key={data.revision} data={data} t={t} onSaved={() => { setSaved(true); setVersion(v => v + 1); }} onReload={() => { setSaved(false); setVersion(v => v + 1); }} />}
+  </section>;
+}
+
+function SettingsForm({ data, t, onSaved, onReload }: { data: SettingsSnapshot; t: T; onSaved: () => void; onReload: () => void }) {
+  const [values, setValues] = useState<Partial<Record<SettingKey, string>>>(data.values);
+  const [cleared, setCleared] = useState<Partial<Record<SettingKey, boolean>>>({});
+  const [shown, setShown] = useState<Partial<Record<SettingKey, boolean>>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const sending = useRef(false);
+  const changes: Partial<Record<SettingKey, string>> = {};
+  for (const group of settingsGroups) for (const key of group.keys) {
+    const value = cleared[key] ? '' : values[key] || '';
+    if (value !== data.values[key]) changes[key] = value;
+  }
+  return <form onSubmit={async event => {
+    event.preventDefault();
+    if (sending.current || !Object.keys(changes).length) return;
+    sending.current = true; setBusy(true); setError(null);
+    try { await request('admin/settings', undefined, { revision: data.revision, values: changes }); onSaved(); }
+    catch (error) { setError(error instanceof Error ? error.message : 'unavailable'); }
+    finally { sending.current = false; setBusy(false); }
+  }}>
+    <div className="settings-grid">{settingsGroups.map(group => <fieldset className="panel settings-group" disabled={busy} key={group.title}>
+      <legend>{t(group.title)}</legend>
+      {group.keys.map(key => {
+        const secret = SECRET_SETTINGS.includes(key);
+        return <div className="setting-field" key={key}>
+          <label htmlFor={`setting-${key}`}>{t(`setting_${key}`)}<code>{key}</code></label>
+          <div className="setting-input"><input id={`setting-${key}`} type={secret && !shown[key] ? 'password' : key.endsWith('URL') ? 'url' : 'text'} value={cleared[key] ? '' : values[key] || ''} maxLength={4096} autoComplete="off" spellCheck={false} disabled={!!cleared[key]} required={key === 'APP_URL' || key === 'ADMIN_STEAM_IDS'}
+            placeholder={secret ? t('secretMissing') : undefined}
+            onChange={event => setValues(current => ({ ...current, [key]: event.target.value }))} />
+            {secret && <button type="button" className="secondary" disabled={!!cleared[key]} aria-label={`${t(shown[key] ? 'hideSecret' : 'showSecret')} ${t(`setting_${key}`)}`} aria-pressed={!!shown[key]} onClick={() => setShown(current => ({ ...current, [key]: !current[key] }))}>{shown[key] ? <EyeOff size={17} /> : <Eye size={17} />}</button>}
+          </div>
+          <small>{t(`settingHint_${key}`)}</small>
+          {secret && data.configured[key] && <label className="setting-clear"><input type="checkbox" checked={!!cleared[key]} onChange={event => setCleared(current => ({ ...current, [key]: event.target.checked }))} />{t('removeSecret')} {t(`setting_${key}`)}</label>}
+        </div>;
+      })}
+    </fieldset>)}</div>
+    <div className="panel settings-bootstrap"><strong>DATABASE_PATH</strong><code>{data.databasePath}</code><p className="muted">{t('databaseBootstrapHint')}</p></div>
+    {error && <p className="warning-text" role="alert">{t(error)}</p>}
+    <div className="settings-save"><button type="button" className="secondary" disabled={busy} onClick={onReload}>{t('reloadSettings')}</button><button className="primary" disabled={busy || !Object.keys(changes).length}>{busy && <LoaderCircle className="spin" size={16} />}{t('saveSettings')}</button></div>
+  </form>;
 }

@@ -2,12 +2,16 @@ import { createHash } from 'node:crypto';
 import { openDatabase } from '../../src/lib/db';
 import en from '../../src/data/catalog-en.json';
 import ru from '../../src/data/catalog-ru.json';
+import { SETTING_KEYS, SETTINGS_DEFAULTS } from '../../src/lib/settings-definition';
 
 const ids = { viewer: 'aaaaaaaaaaaaaaaaaaaaaaaa', candidate: 'bbbbbbbbbbbbbbbbbbbbbbbb', onboarding: 'cccccccccccccccccccccccc' };
 function seed() {
   const { sqlite } = openDatabase('./data/e2e.db');
   sqlite.exec('DELETE FROM users; DELETE FROM asset_cache; DELETE FROM rate_limits;');
   const now = Date.now();
+  const settings = { ...SETTINGS_DEFAULTS, APP_URL: 'http://localhost:3100', ADMIN_STEAM_IDS: '76561197960266728' };
+  for (const key of SETTING_KEYS) sqlite.prepare('INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at').run(key, settings[key], now);
+  sqlite.exec('UPDATE settings_revision SET revision = 0');
   for (const [key, userId] of Object.entries(ids)) {
     const n = Object.keys(ids).indexOf(key) + 1;
     sqlite.prepare('INSERT INTO users (id, steam_id, created_at) VALUES (?, ?, ?)').run(userId, String(76561197960265728n + BigInt(n)), now);

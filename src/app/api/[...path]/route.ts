@@ -4,11 +4,12 @@ import { z } from 'zod';
 import { db } from '@/lib/db';
 import { discord, profiles, sessions, users, passes } from '@/lib/schema';
 import { AppError, authenticate, consumeState, cookie, cookieValue, csrf, hash, id, newSession, newState, rateLimit, RateLimitError } from '@/lib/security';
-import { origin, required } from '@/lib/config';
+import { origin, required, setting } from '@/lib/config';
 import { logError, withRequestLog } from '@/lib/logger';
 import { catalog, DiscordError, discordIdentity, refreshRank, sendDM, steamLoginUrl, steamSummary, verifyMembership, verifySteam } from '@/lib/providers';
 import { communityStats, act, blockUser, cancelJobs, disconnectDiscord, discovery, getMe, profileDetail, receivedLikes, saveFilters, saveProfile } from '@/lib/service';
 import { adminReports, adminUsers, reportPlayer, requireAdmin, setUserBan } from '@/lib/admin';
+import { adminSettings, saveAdminSettings } from '@/lib/settings';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -104,11 +105,12 @@ async function get(request: Request, context: Context) {
     }
     if (path === 'me') {
       await refreshRank(user.id);
-      return json({ ...getMe(user.id), discordInvite: process.env.DISCORD_INVITE_URL || null,
-        discordConfigured: !!(process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET && process.env.DISCORD_BOT_TOKEN && process.env.DISCORD_GUILD_ID) });
+      return json({ ...getMe(user.id), discordInvite: setting('DISCORD_INVITE_URL') || null,
+        discordConfigured: !!(setting('DISCORD_CLIENT_ID') && setting('DISCORD_CLIENT_SECRET') && setting('DISCORD_BOT_TOKEN') && setting('DISCORD_GUILD_ID')) });
     }
     if (path.startsWith('admin/')) {
       requireAdmin(user);
+      if (path === 'admin/settings') return json(adminSettings(user));
       const query = Object.fromEntries(url.searchParams);
       if (path === 'admin/users') return json(adminUsers(query));
       const reportsPath = /^admin\/users\/([a-f0-9]{24})\/reports$/.exec(path);
@@ -139,15 +141,20 @@ async function post(request: Request, context: Context) {
     }
     if (path === 'profile') { await saveProfile(user.id, await body(request)); return json({ ok: true }); }
     if (path === 'reports') return json(reportPlayer(user.id, await body(request)));
+    if (path === 'admin/settings') {
+      requireAdmin(user);
+      return json(saveAdminSettings(user, await body(request)));
+    }
     if (path === 'admin/ban') {
       requireAdmin(user);
       return json(setUserBan(user, await body(request)));
     }
     if (path === 'complaint') {
       const { text } = z.object({ text: z.string().trim().min(1).max(1500) }).strict().parse(await body(request));
-      const recipient = process.env.DISCORD_ADMIN_USER_ID?.trim();
-      if (!recipient || !/^\d{17,20}$/.test(recipient) || !process.env.DISCORD_BOT_TOKEN) {
-        logError('complaint.configuration_missing', new AppError('complaintUnavailable', 503), { adminConfigured: !!recipient && /^\d{17,20}$/.test(recipient), botConfigured: !!process.env.DISCORD_BOT_TOKEN });
+      const recipient = setting('DISCORD_ADMIN_USER_ID');
+      const botConfigured = !!setting('DISCORD_BOT_TOKEN');
+      if (!recipient || !/^\d{17,20}$/.test(recipient) || !botConfigured) {
+        logError('complaint.configuration_missing', new AppError('complaintUnavailable', 503), { adminConfigured: !!recipient && /^\d{17,20}$/.test(recipient), botConfigured });
         throw new AppError('complaintUnavailable', 503);
       }
       try {

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { db } from './db';
 import { assets, ranks, users } from './schema';
 import { AppError, claimNonce, id, rateLimit } from './security';
-import { DEADLOCK, DISCORD, origin, required } from './config';
+import { DEADLOCK, DISCORD, origin, required, setting } from './config';
 import { logError, providerFetch } from './logger';
 import type { Catalog, Locale } from './model';
 import fallbackEn from '../data/catalog-en.json';
@@ -47,10 +47,11 @@ export async function verifySteam(url: URL, state: string) {
   return match[1];
 }
 export async function steamSummary(steamId: string) {
-  if (!process.env.STEAM_API_KEY) return { name: `Player ${steamId.slice(-4)}`, avatar: '' };
+  const apiKey = setting('STEAM_API_KEY');
+  if (!apiKey) return { name: `Player ${steamId.slice(-4)}`, avatar: '' };
   try {
     const url = new URL('https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/');
-    url.searchParams.set('key', process.env.STEAM_API_KEY);
+    url.searchParams.set('key', apiKey);
     url.searchParams.set('steamids', steamId);
     const response = await providerFetch('steam', 'player_summary', url, { signal: AbortSignal.timeout(8000) });
     if (!response.ok) throw new AppError('authUnavailable', 503);
@@ -83,7 +84,8 @@ export async function refreshRank(userId: string, manual = false) {
   const user = db().select().from(users).where(eq(users.id, userId)).get();
   if (!user) return;
   try {
-    const response = await providerFetch('deadlock', 'player_rank', `${DEADLOCK}/v1/players/${steamAccountId(user.steamId)}/rank`, { headers: process.env.DEADLOCK_API_KEY ? { 'X-API-Key': process.env.DEADLOCK_API_KEY } : {}, signal: AbortSignal.timeout(8000) });
+    const apiKey = setting('DEADLOCK_API_KEY');
+    const response = await providerFetch('deadlock', 'player_rank', `${DEADLOCK}/v1/players/${steamAccountId(user.steamId)}/rank`, { headers: apiKey ? { 'X-API-Key': apiKey } : {}, signal: AbortSignal.timeout(8000) });
     if (!response.ok) throw new Error('rankUnavailable');
     const rank = rankSchema.parse(await response.json());
     db().update(ranks).set({ tier: rank.rank, division: rank.subrank, fetchedAt: Date.now(), error: null }).where(eq(ranks.userId, userId)).run();

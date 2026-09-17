@@ -11,7 +11,7 @@ Use Bun 1.4.0 or newer. The web app, worker, database tools and backend tests ru
 ```powershell
 bun install --frozen-lockfile
 Copy-Item .env.example .env
-# Fill in your integration settings in .env.
+# Set ADMIN_STEAM_IDS and initial integration settings in .env before migration.
 bun run db:migrate
 bun run dev
 ```
@@ -22,7 +22,7 @@ Open **http://localhost:3000**. In a second terminal, start notification deliver
 bun run worker
 ```
 
-Use `.env` for both processes; restart them after changing it. On macOS/Linux, use `cp .env.example .env` instead of `Copy-Item`. Without Discord credentials, players can complete their profiles, browse, like players and use Steam contact links. Discord notifications remain unavailable. The worker can stay idle until likes exist.
+Migration `0004_app_settings.sql` imports application settings from the process environment once. After that, use **Admin panel → Settings**; both the web app and worker read the database for new requests without a restart. Only `DATABASE_PATH` and process/container settings remain in the environment. On macOS/Linux, use `cp .env.example .env` instead of `Copy-Item`. Without Discord credentials, players can complete their profiles, browse, like players and use Steam contact links. Discord notifications remain unavailable. The worker can stay idle until likes exist.
 
 ## Integration setup
 
@@ -37,7 +37,7 @@ Use `.env` for both processes; restart them after changing it. On macOS/Linux, u
 ### Discord
 
 1. Create an application and bot in the [Discord Developer Portal](https://discord.com/developers/applications).
-2. Add the OAuth2 redirect URL `APP_URL/api/auth/discord/callback` exactly. Copy the client ID, client secret and bot token into `.env`.
+2. Add the OAuth2 redirect URL `APP_URL/api/auth/discord/callback` exactly. Set the client ID, client secret and bot token in **Admin panel → Settings**, or in `.env` before the first settings migration.
 3. Invite the bot to your own community server with the `bot` scope. This implementation uses REST calls, not a Gateway connection, message-content access or administrator permissions.
 4. Set `DISCORD_GUILD_ID` to that server’s ID and `DISCORD_INVITE_URL` to a persistent `https://discord.gg/...` invitation.
 5. On the site, link your Discord identity, join the server, permit DMs from its members, and click **Verify & send test DM**. A successful membership lookup and test message enable Discord notifications. Profile discovery does not require Discord.
@@ -106,11 +106,11 @@ The Dockerfile pins Bun 1.4.0, installs from `bun.lock`, and runs lint, backend 
 
 Both web and worker send outbound HTTP/HTTPS requests through the home server's proxy on port 5050. The web app calls Discord for OAuth, identity, membership verification and the onboarding test DM; the worker delivers queued notifications. Compose maps `host.docker.internal` to the Docker host gateway because `127.0.0.1` inside a container refers to the container itself. The proxy must accept connections on the host gateway interface (the current listener binds `0.0.0.0:5050`). Loopback requests, including the web health check, bypass the proxy.
 
-Compose matches the server's existing Traefik configuration: host networking, Docker provider, `http` and `https` entrypoints, and the `letsencrypt` certificate resolver. Container labels route `lockinder.win` to web port 3000 and redirect HTTP to HTTPS. The app publishes no host ports; host-networked Traefik can reach the Compose bridge directly. `APP_URL` is fixed to `https://lockinder.win` for both services.
+Compose matches the server's existing Traefik configuration: host networking, Docker provider, `http` and `https` entrypoints, and the `letsencrypt` certificate resolver. Container labels route `lockinder.win` to web port 3000 and redirect HTTP to HTTPS. The app publishes no host ports; host-networked Traefik can reach the Compose bridge directly. Compose supplies `APP_URL=https://lockinder.win` for the initial database import. Later edits in the admin panel are authoritative; changing the site domain also requires updating the hosting/DNS configuration.
 
 The domain points to the Alpine VPS at `103.141.13.141`. Rathole forwards TCP ports 80/443 from that VPS to home Traefik; no inbound home port forwarding is needed. Traefik's Cloudflare DNS challenge credentials must cover the `lockinder.win` zone. Set the Discord redirect URL to `https://lockinder.win/api/auth/discord/callback`.
 
-Optional integration credentials can be supplied as a multiline GitHub Actions secret named `LOCKINDER_ENV`, using `.env.example` as the template. The workflow saves it to `/home/github-runner/.config/lockinder/production.env` with private permissions, outside the checkout and Docker build context. Alternatively, manage that file on the server. Without a secret or existing file, the first run creates a configuration with integrations disabled; Steam OpenID still works. Subsequent runs preserve the file unless the secret is supplied.
+Initial settings can be supplied as a multiline GitHub Actions secret named `LOCKINDER_ENV`, using `.env.example` as the template. Include `ADMIN_STEAM_IDS=76561198389790471` before the first settings migration so the administrator can open the panel. The workflow saves the file to `/home/github-runner/.config/lockinder/production.env` with private permissions, outside the checkout and Docker build context. Alternatively, manage that file on the server. Without a secret or existing file, the first run creates a configuration with integrations and admin access disabled; Steam OpenID still works. The settings migration runs at first database connection in the new container, imports all ten supported application settings in the same transaction as its migration marker, and never imports again. Subsequent deploys and old environment values cannot overwrite database settings or restore a cleared token.
 
 Deployments are serialized. Images are tagged with the commit SHA. The deployment script makes a consistent database backup through the running worker, stops both old processes before migrations, and waits for web health and worker startup. Backups remain in `/data/backup-*.db`; copy them off-host and manage retention. A failed build leaves the current deployment running. A startup failure fails the workflow; inspect `docker compose logs web worker` before recovery. There is no automatic schema rollback.
 
@@ -176,7 +176,9 @@ Provider integrations are mocked in automated tests. Before launch, use two acco
 
 ### Administration and player reports
 
-Set `ADMIN_STEAM_IDS` to a comma-separated list of administrator SteamID64 values, then restart the web service. Administrators see an **Admin panel** navigation link at `/admin`; all admin API requests independently check the authenticated Steam account against this server-side allowlist. An empty list disables admin access. For this installation, the requested administrator is `76561198389790471`.
+Set `ADMIN_STEAM_IDS` before the first settings migration, then manage the comma-separated list in **Admin panel → Settings**. Administrators see an **Admin panel** navigation link at `/admin`; every admin API request checks the authenticated Steam account against the database allowlist. The settings form prevents removal of the current administrator and rejects banned accounts. For this installation, the requested administrator is `76561198389790471`.
+
+The Settings section covers `APP_URL`, `ADMIN_STEAM_IDS`, Steam/Deadlock API keys and all six Discord settings from `.env.example`. The authenticated admin settings endpoint returns the saved secrets to prefill all fields, with no-store caching. Secret fields are masked by default and each has a Show/Hide button. Unchanged fields are omitted from updates; clearing a field or selecting its removal checkbox deletes the saved value. Ordinary users cannot access this endpoint. Updates are validated and atomic, and a revision check prevents concurrent editors from overwriting each other. `DATABASE_PATH` is shown read-only because it is needed before the database can be opened. Runtime infrastructure variables (ports, container image tags, proxy and runner configuration) remain deployment settings. The database and its backups now contain integration credentials and must retain the same restricted access as the old environment file.
 
 Players can report another player from discovery or their profile card. Reports (up to 1500 characters, two submissions per minute per author) are persisted in SQLite and reviewed in the admin panel; they do not depend on Discord delivery. The panel lists all accounts, searches names/SteamIDs/Discord usernames, and paginates users and report details. A separate reported-users tab shows report counts and authors, text and dates.
 
@@ -184,7 +186,7 @@ Admins can ban and unban users with confirmation. Banning hides the profile from
 
 ### Complaint recipient
 
-Set `DISCORD_ADMIN_USER_ID` in the server `.env` to the administrator’s numeric Discord user ID. The existing `DISCORD_BOT_TOKEN` is used to send direct messages. The administrator must allow DMs from the bot (and share a server with it). Restart the web service after changing the configuration.
+Set `DISCORD_ADMIN_USER_ID` in **Admin panel → Settings** to the administrator’s numeric Discord user ID. The saved `DISCORD_BOT_TOKEN` is used to send direct messages. The administrator must allow DMs from the bot (and share a server with it). Changes apply to subsequent sends without restarting the web service or worker.
 
 Authenticated users can submit complaints from the navigation bar without connecting their own Discord account. Each message includes the complaint text and the sender’s Steam profile link. Messages are limited to 1500 characters and share the bot's quota of two send attempts per user per minute.
 
